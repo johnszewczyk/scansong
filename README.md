@@ -23,6 +23,10 @@ clean release build, ad-hoc signs the new bundle, stops any existing
 MediaScanner process, and opens that exact bundle as a new instance. Use
 `build-app.sh` alone when a clean build without launch is required.
 
+MediaScanner is also registered in `/Users/john/Downloads/Code/LaunchPad/apps.txt`.
+Its LaunchPad row runs the same clean `build-app.sh` contract before opening the
+new bundle.
+
 Choose an existing schema-23 catalog or create a new `Library.sqlite`, add scan
 folders, choose the console-tag source, and press **Scan**. **Rebuild** forces
 reinspection; ordinary Scan reuses matching completed sources. Cancelling
