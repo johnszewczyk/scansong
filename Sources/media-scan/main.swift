@@ -26,7 +26,7 @@ private func writeFatal(_ message: String) throws {
 }
 
 private func usage() -> String {
-    "Usage: media-scan plugins | probe [--recursive] [--strict] PATH..."
+    "Usage: media-scan plugins | probe [--recursive] [--strict] PATH... | catalog validate PATH"
 }
 
 do {
@@ -53,6 +53,13 @@ do {
         let result = try DryRunProbe().run(paths: paths, recursive: recursive, strict: strict)
         for event in result.events { try write(event) }
         if result.hasErrors { throw Exit.code(2) }
+    case "catalog":
+        guard arguments.count == 2, arguments[0] == "validate" else {
+            try writeFatal("catalog requires: validate PATH")
+            throw Exit.code(64)
+        }
+        let summary = try CanonicalCatalog.inspect(databaseURL: URL(fileURLWithPath: arguments[1]))
+        try write(ScannerEvent(kind: .catalogValidated, sequence: 0, path: summary.path, catalog: summary))
     default:
         try writeFatal("Unknown command: \(command). \(usage())")
         throw Exit.code(64)

@@ -13,11 +13,12 @@ Current package products:
 swift run media-scan plugins
 swift run media-scan probe /path/to/file
 swift run media-scan probe --recursive --strict /path/to/folder
+swift run media-scan catalog validate /path/to/Library.sqlite
 ```
 
-`probe` never writes a database. Standard output is reserved for versioned JSONL events.
+`probe` never writes a database. `catalog validate` opens the selected SQLite file read-only, requires the canonical CocoaSpice schema version and tables, and reports its root and track counts. Standard output is reserved for versioned JSONL events.
 
-The package is the scanner implementation boundary. Player hosts adapt its typed results into their own databases; scanner plugins do not know about CocoaSpice, Electron, playlists, or UI state. The executable is not yet the production SPCBoy catalog path because archive materialization and decoder plugin packaging must move behind this boundary before cutover.
+The package is the scanner implementation boundary and the canonical catalog owner. The current catalog contract is CocoaSpice schema 23. SPCBoy already consumes that catalog through a query-only adapter; CocoaSpice still has its in-process writer while catalog mutations, archive materialization, and decoder plugin packaging move behind this boundary. Do not claim the sole-writer cutover is complete until CocoaSpice's writer and the dormant SPCBoy JavaScript scanner are removed from production paths.
 
 ## Build and test
 

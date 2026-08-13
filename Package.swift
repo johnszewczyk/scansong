@@ -10,7 +10,10 @@ let package = Package(
         .executable(name: "media-scan", targets: ["media-scan"])
     ],
     targets: [
-        .target(name: "MediaScannerKit"),
+        .target(
+            name: "MediaScannerKit",
+            linkerSettings: [.linkedLibrary("sqlite3")]
+        ),
         .executableTarget(name: "media-scan", dependencies: ["MediaScannerKit"]),
         .testTarget(name: "MediaScannerKitTests", dependencies: ["MediaScannerKit"])
     ],

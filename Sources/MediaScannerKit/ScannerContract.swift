@@ -204,6 +204,7 @@ public enum ScannerEventKind: String, Codable, Sendable {
     case diagnostic
     case sessionFinished
     case plugin
+    case catalogValidated
 }
 
 public enum ScannerDiagnosticSeverity: String, Codable, Sendable {
@@ -235,6 +236,7 @@ public struct ScannerEvent: Codable, Sendable {
     public let discovered: Int?
     public let accepted: Int?
     public let unsupported: Int?
+    public let catalog: CanonicalCatalogSummary?
 
     public init(
         kind: ScannerEventKind,
@@ -245,7 +247,8 @@ public struct ScannerEvent: Codable, Sendable {
         plugin: ScannerPluginDescriptor? = nil,
         discovered: Int? = nil,
         accepted: Int? = nil,
-        unsupported: Int? = nil
+        unsupported: Int? = nil,
+        catalog: CanonicalCatalogSummary? = nil
     ) {
         self.contract = MediaScannerContract.name
         self.version = MediaScannerContract.version
@@ -258,5 +261,6 @@ public struct ScannerEvent: Codable, Sendable {
         self.discovered = discovered
         self.accepted = accepted
         self.unsupported = unsupported
+        self.catalog = catalog
     }
 }

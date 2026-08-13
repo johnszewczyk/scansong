@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import Testing
 @testable import MediaScannerKit
 
@@ -32,6 +33,37 @@ import Testing
     let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     #expect(json["contract"] as? String == MediaScannerContract.name)
     #expect(json["version"] as? Int == MediaScannerContract.version)
+}
+
+@Test func canonicalCatalogValidationAcceptsOnlyTheSharedSchema() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("MediaScanner-catalog-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let databaseURL = directory.appendingPathComponent("Library.sqlite")
+    try createCanonicalCatalog(at: databaseURL)
+
+    let summary = try CanonicalCatalog.inspect(databaseURL: databaseURL)
+    #expect(summary.schemaVersion == CanonicalCatalog.schemaVersion)
+    #expect(summary.rootCount == 1)
+    #expect(summary.trackCount == 2)
+    #expect(summary.path == databaseURL.standardizedFileURL.path)
+}
+
+@Test func canonicalCatalogValidationRejectsAnUnrelatedSQLiteFile() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("MediaScanner-invalid-catalog-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let databaseURL = directory.appendingPathComponent("Other.sqlite")
+    var database: OpaquePointer?
+    #expect(sqlite3_open(databaseURL.path, &database) == SQLITE_OK)
+    defer { sqlite3_close(database) }
+    #expect(sqlite3_exec(database, "PRAGMA user_version = 1;", nil, nil, nil) == SQLITE_OK)
+
+    #expect(throws: Error.self) {
+        try CanonicalCatalog.inspect(databaseURL: databaseURL)
+    }
 }
 
 @Test func scannerMetadataRoundTripsWithoutAHostModel() throws {
@@ -129,6 +161,37 @@ import Testing
 
 private enum SchedulerTestError: Error {
     case expected
+}
+
+private func createCanonicalCatalog(at url: URL) throws {
+    var database: OpaquePointer?
+    guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {
+        throw NSError(domain: "MediaScannerTests", code: 1)
+    }
+    defer { sqlite3_close(database) }
+    let statements = [
+        "PRAGMA user_version = 23;",
+        "CREATE TABLE library_roots (id INTEGER PRIMARY KEY, is_attached INTEGER NOT NULL);",
+        "CREATE TABLE tracks (id INTEGER PRIMARY KEY);",
+        "CREATE TABLE track_metadata (track_id INTEGER PRIMARY KEY);",
+        "CREATE TABLE scan_items (id INTEGER PRIMARY KEY);",
+        "CREATE TABLE scan_staging_roots (id INTEGER PRIMARY KEY);",
+        "CREATE TABLE scan_source_checkpoints (id INTEGER PRIMARY KEY);",
+        "CREATE TABLE dead_sources (id INTEGER PRIMARY KEY);",
+        "CREATE TABLE game_sidebar_buckets (id INTEGER PRIMARY KEY);",
+        "CREATE TABLE file_sidebar_buckets (id INTEGER PRIMARY KEY);",
+        "INSERT INTO library_roots (id, is_attached) VALUES (1, 1), (2, 0);",
+        "INSERT INTO tracks (id) VALUES (1), (2);"
+    ]
+    for statement in statements {
+        guard sqlite3_exec(database, statement, nil, nil, nil) == SQLITE_OK else {
+            throw NSError(
+                domain: "MediaScannerTests",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: String(cString: sqlite3_errmsg(database))]
+            )
+        }
+    }
 }
 
 @Test func sharedSchedulerReleasesItsPermitAfterPluginFailure() async throws {
