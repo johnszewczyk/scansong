@@ -1,24 +1,23 @@
-# Command Line
+# Scanner Interfaces
 
-## Probe
+## Native App
 
-- `media-scan probe PATH...` examines files without writing a database.
-- `--recursive` includes descendants of directory arguments.
-- `--strict` returns failure when an input is unsupported.
-- Output is one JSON object per line for direct use by applications and tests.
+- New and Browse choose the schema-23 catalog MediaScanner alone may modify.
+- Add Folders adds complete scan roots. Add Files adds each selected file's
+  containing folder as a complete root.
+- Scan reuses validated completed work; Rebuild forces source reinspection.
+- Console Tags selects folder-first or embedded-metadata-first grouping.
+- Status shows the active phase, source path, counts, and diagnostics.
+- Cancel retains completed source/archive checkpoints for the next Scan.
 
-## Plugins
+## Command Line
 
-- `media-scan plugins` reports every registered format route and its structure and metadata policies.
-
-## Catalog
-
-- `media-scan catalog validate PATH` opens an existing canonical schema-23 catalog read-only and reports its path, attached-root count, and track count.
-
-## Native Test App
-
-- `MediaScanner` browses for an existing catalog, validates it read-only, and restores that selected path on the next launch.
-- Add Files and Add Folder build a test input list without modifying the catalog.
-- Test Scan reports live discovery/routing status and typed diagnostics.
-- Cancel stops discovery or routing cooperatively and retains the input list.
-- The current test scan does not publish catalog rows.
+- `media-scan plugins` reports registered format routes and policies.
+- `media-scan probe [--recursive] [--strict] PATH...` examines input without
+  writing a catalog.
+- `media-scan catalog create|validate|roots PATH` creates, checks, or lists a
+  canonical catalog.
+- `media-scan scan [--new] [--console-source=folders|metadata] CATALOG ROOT...`
+  scans one or more complete roots into the selected catalog.
+- Output is ordered, versioned JSONL. Scanner failures return nonzero status;
+  SIGINT/SIGTERM cancellation returns 130 after retaining checkpoints.

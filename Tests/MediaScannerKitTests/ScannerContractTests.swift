@@ -77,6 +77,43 @@ import Testing
     }
 }
 
+@Test func catalogScannerCreatesAndPublishesAHostReadableSchema23Catalog() async throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("MediaScanner-writer-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let root = directory.appendingPathComponent("Library", isDirectory: true)
+    let game = root
+        .appendingPathComponent("Sony PlayStation", isDirectory: true)
+        .appendingPathComponent("Castlevania", isDirectory: true)
+    try FileManager.default.createDirectory(at: game, withIntermediateDirectories: true)
+    try Data("fixture".utf8).write(to: game.appendingPathComponent("Prologue.wav"))
+    let databaseURL = directory.appendingPathComponent("Library.sqlite")
+
+    let result = try await CatalogScanner(databaseURL: databaseURL).scan(rootURL: root, mode: .newScan)
+    #expect(result.discoveredSourceCount == 1)
+    #expect(result.trackCount == 1)
+    #expect(result.failures.isEmpty)
+
+    let summary = try CanonicalCatalog.inspect(databaseURL: databaseURL)
+    #expect(summary.schemaVersion == 23)
+    #expect(summary.rootCount == 1)
+    #expect(summary.trackCount == 1)
+
+    var database: OpaquePointer?
+    #expect(sqlite3_open_v2(databaseURL.path, &database, SQLITE_OPEN_READONLY, nil) == SQLITE_OK)
+    let row = try querySingleRow(
+        database: try #require(database),
+        sql: "SELECT browser_game, browser_system, filename FROM tracks LIMIT 1;"
+    )
+    let journalMode = try querySingleRow(
+        database: try #require(database),
+        sql: "PRAGMA journal_mode;"
+    )
+    sqlite3_close(database)
+    #expect(row == ["Castlevania", "Sony PlayStation", "Prologue.wav"])
+    #expect(journalMode == ["delete"])
+}
+
 @Test func scannerMetadataRoundTripsWithoutAHostModel() throws {
     let metadata = ScannerMetadata(
         game: "Castlevania",
@@ -91,6 +128,22 @@ import Testing
     )
     let encoded = try JSONEncoder().encode(metadata)
     #expect(try JSONDecoder().decode(ScannerMetadata.self, from: encoded) == metadata)
+}
+
+@Test func catalogConsoleSourcePolicyIsDeterministicForPlayStationFamilies() {
+    let source = "/Audio/Sony PlayStation 2/Castlevania/track.psf2"
+    #expect(CatalogIdentity.browserSystem(
+        metadataSystem: "PlayStation",
+        sourcePath: source,
+        rootPath: "/Audio",
+        policy: .foldersFirst
+    ) == "Sony PlayStation 2")
+    #expect(CatalogIdentity.browserSystem(
+        metadataSystem: "PlayStation",
+        sourcePath: source,
+        rootPath: "/Audio",
+        policy: .metadataFirst
+    ) == "Sony PlayStation")
 }
 
 @Test func sharedPlannerSkipsOnlyACompletedMatchingIncrementalItem() throws {
@@ -202,6 +255,20 @@ private func createCanonicalCatalog(at url: URL) throws {
                 userInfo: [NSLocalizedDescriptionKey: String(cString: sqlite3_errmsg(database))]
             )
         }
+    }
+}
+
+private func querySingleRow(database: OpaquePointer, sql: String) throws -> [String] {
+    var statement: OpaquePointer?
+    guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
+        throw NSError(domain: "MediaScannerTests", code: 3)
+    }
+    defer { sqlite3_finalize(statement) }
+    guard sqlite3_step(statement) == SQLITE_ROW else {
+        throw NSError(domain: "MediaScannerTests", code: 4)
+    }
+    return (0..<sqlite3_column_count(statement)).map { index in
+        sqlite3_column_text(statement, index).map { String(cString: $0) } ?? ""
     }
 }
 

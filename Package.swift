@@ -4,15 +4,22 @@ import PackageDescription
 
 let package = Package(
     name: "MediaScanner",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS("26.0")],
     products: [
         .library(name: "MediaScannerKit", targets: ["MediaScannerKit"]),
         .executable(name: "media-scan", targets: ["media-scan"]),
         .executable(name: "MediaScanner", targets: ["MediaScannerApp"])
     ],
     targets: [
+        .systemLibrary(
+            name: "CGameMusicEmu",
+            path: "Sources/CGME",
+            pkgConfig: "libgme",
+            providers: [.brew(["game-music-emu"])]
+        ),
         .target(
             name: "MediaScannerKit",
+            dependencies: ["CGameMusicEmu"],
             linkerSettings: [.linkedLibrary("sqlite3")]
         ),
         .executableTarget(name: "media-scan", dependencies: ["MediaScannerKit"]),

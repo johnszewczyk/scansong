@@ -1,0 +1,5 @@
+module CGameMusicEmu [system] {
+    header "shim.h"
+    link "gme"
+    export *
+}
