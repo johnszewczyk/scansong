@@ -33,6 +33,12 @@
   validates fingerprints before reusing checkpoints.
 - A failed refresh preserves last-known-good playable rows, records the current
   failure in staged inventory, and omits its checkpoint so it is retried.
+- Attached roots are catalog state, not ephemeral GUI state. Removing a root
+  detaches it; it does not purge its indexed records.
+- Link tests operate once per distinct physical source. Missing paths enter
+  `dead_sources`, remain fingerprinted and retained, and are excluded from both
+  rebuilt projections and player queries. Clear Dead Links is the only UI
+  action that deletes those indexed rows.
 - Structure policy is independent from optional metadata policy. Required child
   or dependency enumeration cannot be deferred.
 - Unknown inputs and unavailable required adapters are typed diagnostics, never

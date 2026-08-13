@@ -9,6 +9,14 @@ public struct CatalogRoot: Identifiable, Equatable, Sendable {
     public let lastScanCompletedAt: Date?
     public let lastScanTrackCount: Int
     public let lastScanError: String?
+    public let failedSourceCount: Int
+    public let deadSourceCount: Int
+}
+
+public struct CatalogLinkTestResult: Equatable, Sendable {
+    public let testedSourceCount: Int
+    public let missingSourceCount: Int
+    public let restoredSourceCount: Int
 }
 
 public struct CatalogTrackRecord: Sendable {
@@ -93,9 +101,12 @@ public final class CanonicalCatalogWriter: @unchecked Sendable {
     public func roots() throws -> [CatalogRoot] {
         try query(
             """
-            SELECT id, path, is_enabled, last_scan_started_at, last_scan_completed_at,
-                   last_scan_track_count, last_scan_error
-            FROM library_roots WHERE is_attached=1
+            SELECT r.id, r.path, r.is_enabled, r.last_scan_started_at, r.last_scan_completed_at,
+                   r.last_scan_track_count, r.last_scan_error,
+                   (SELECT COUNT(*) FROM scan_items i
+                    WHERE i.root_id=r.id AND i.archive_entry='' AND i.state='failed'),
+                   (SELECT COUNT(*) FROM dead_sources d WHERE d.root_id=r.id)
+            FROM library_roots r WHERE r.is_attached=1
             ORDER BY lower(path), path;
             """
         ) { statement in
@@ -106,8 +117,84 @@ public final class CanonicalCatalogWriter: @unchecked Sendable {
                 lastScanStartedAt: Self.date(statement, 3),
                 lastScanCompletedAt: Self.date(statement, 4),
                 lastScanTrackCount: Int(sqlite3_column_int64(statement, 5)),
-                lastScanError: Self.nullableString(statement, 6)
+                lastScanError: Self.nullableString(statement, 6),
+                failedSourceCount: Int(sqlite3_column_int64(statement, 7)),
+                deadSourceCount: Int(sqlite3_column_int64(statement, 8))
             )
+        }
+    }
+
+    public func testFiles() throws -> CatalogLinkTestResult {
+        let sources: [(rootID: Int64, path: String)] = try query(
+            """
+            SELECT DISTINCT i.root_id, i.path
+            FROM scan_items i JOIN library_roots r ON r.id=i.root_id
+            WHERE r.is_attached=1 AND i.archive_entry=''
+            ORDER BY i.path;
+            """
+        ) { (sqlite3_column_int64($0, 0), Self.string($0, 1)) }
+        var missing: [(Int64, String)] = []
+        for source in sources {
+            do {
+                _ = try FileManager.default.attributesOfItem(atPath: source.path)
+            } catch {
+                let cocoa = error as NSError
+                if cocoa.domain == NSCocoaErrorDomain,
+                   (cocoa.code == NSFileReadNoSuchFileError || cocoa.code == CocoaError.fileNoSuchFile.rawValue) {
+                    missing.append(source)
+                } else {
+                    throw Self.error("Could not inspect \(source.path): \(error.localizedDescription)")
+                }
+            }
+        }
+        let missingKeys = Set(missing.map { "\($0.0)\u{1f}\($0.1)" })
+        let previouslyDead: Set<String> = Set(try query(
+            "SELECT root_id, path FROM dead_sources;"
+        ) { "\(sqlite3_column_int64($0, 0))\u{1f}\(Self.string($0, 1))" })
+        try execute("BEGIN IMMEDIATE;")
+        do {
+            try execute("DELETE FROM dead_sources;")
+            let now = Date().timeIntervalSince1970
+            for source in missing {
+                try execute(
+                    "INSERT INTO dead_sources(root_id,path,marked_at) VALUES (?,?,?);",
+                    [.integer(source.0), .text(source.1), .real(now)]
+                )
+            }
+            for root in try roots() {
+                try replaceBuckets(rootID: root.id)
+                try updateActiveTrackCount(rootID: root.id)
+            }
+            try execute("COMMIT;")
+        } catch {
+            try? execute("ROLLBACK;")
+            throw error
+        }
+        return CatalogLinkTestResult(
+            testedSourceCount: sources.count,
+            missingSourceCount: missing.count,
+            restoredSourceCount: previouslyDead.subtracting(missingKeys).count
+        )
+    }
+
+    @discardableResult
+    public func clearDeadLinks() throws -> Int {
+        let count = try scalarInt("SELECT COUNT(*) FROM dead_sources;")
+        guard count > 0 else { return 0 }
+        try execute("BEGIN IMMEDIATE;")
+        do {
+            try execute("DELETE FROM tracks WHERE EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=tracks.root_id AND d.path=tracks.path);")
+            try execute("DELETE FROM scan_items WHERE EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=scan_items.root_id AND d.path=scan_items.path);")
+            try execute("DELETE FROM dead_sources;")
+            for root in try roots() {
+                try replaceBuckets(rootID: root.id)
+                try updateActiveTrackCount(rootID: root.id)
+            }
+            try execute("COMMIT;")
+            return count
+        } catch {
+            try? execute("ROLLBACK;")
+            throw error
         }
     }
 
@@ -382,7 +469,10 @@ public final class CanonicalCatalogWriter: @unchecked Sendable {
         do {
             try execute("DELETE FROM game_sidebar_buckets WHERE root_id=?;", [.integer(targetRootID)])
             try execute("DELETE FROM file_sidebar_buckets WHERE root_id=?;", [.integer(targetRootID)])
-            try execute("DELETE FROM dead_sources WHERE root_id=?;", [.integer(targetRootID)])
+            try execute(
+                "DELETE FROM dead_sources WHERE root_id=? AND EXISTS (SELECT 1 FROM scan_items staged WHERE staged.root_id=? AND staged.path=dead_sources.path);",
+                [.integer(targetRootID), .integer(stageID)]
+            )
             try execute("DELETE FROM tracks WHERE root_id=?;", [.integer(targetRootID)])
             try execute("DELETE FROM scan_items WHERE root_id=?;", [.integer(targetRootID)])
             try execute("UPDATE tracks SET root_id=? WHERE root_id=?;", [.integer(targetRootID), .integer(stageID)])
@@ -606,7 +696,9 @@ public final class CanonicalCatalogWriter: @unchecked Sendable {
             """
             INSERT INTO game_sidebar_buckets(root_id, browser_game, browser_system, track_count)
             SELECT root_id, browser_game, browser_system, COUNT(*) FROM tracks
-            WHERE root_id=? GROUP BY root_id, browser_game, browser_system;
+            WHERE root_id=? AND NOT EXISTS (
+                SELECT 1 FROM dead_sources d WHERE d.root_id=tracks.root_id AND d.path=tracks.path
+            ) GROUP BY root_id, browser_game, browser_system;
             """,
             [.integer(rootID)]
         )
@@ -614,9 +706,30 @@ public final class CanonicalCatalogWriter: @unchecked Sendable {
             """
             INSERT INTO file_sidebar_buckets(root_id, folder_path, path, is_archive, track_count)
             SELECT root_id, folder_path, path, MAX(archive_path IS NOT NULL), COUNT(*)
-            FROM tracks WHERE root_id=? GROUP BY root_id, folder_path, path;
+            FROM tracks WHERE root_id=? AND NOT EXISTS (
+                SELECT 1 FROM dead_sources d WHERE d.root_id=tracks.root_id AND d.path=tracks.path
+            ) GROUP BY root_id, folder_path, path;
             """,
             [.integer(rootID)]
+        )
+    }
+
+    private func replaceBuckets(rootID: Int64) throws {
+        try execute("DELETE FROM game_sidebar_buckets WHERE root_id=?;", [.integer(rootID)])
+        try execute("DELETE FROM file_sidebar_buckets WHERE root_id=?;", [.integer(rootID)])
+        try rebuildBuckets(rootID: rootID)
+    }
+
+    private func updateActiveTrackCount(rootID: Int64) throws {
+        try execute(
+            """
+            UPDATE library_roots SET last_scan_track_count=(
+                SELECT COUNT(*) FROM tracks t WHERE t.root_id=? AND NOT EXISTS (
+                    SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=t.path
+                )
+            ) WHERE id=?;
+            """,
+            [.integer(rootID), .integer(rootID)]
         )
     }
 

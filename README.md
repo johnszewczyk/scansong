@@ -27,12 +27,27 @@ MediaScanner is also registered in `/Users/john/Downloads/Code/LaunchPad/apps.tx
 Its LaunchPad row runs the same clean `build-app.sh` contract before opening the
 new bundle.
 
-Choose an existing schema-23 catalog or create a new `Library.sqlite`, add scan
-folders, choose the console-tag source, and press **Scan**. **Rebuild** forces
-reinspection; ordinary Scan reuses matching completed sources. Cancelling
+Choose an existing schema-23 catalog or create a new `Library.sqlite`. Existing
+attached roots load from the catalog automatically. Check the roots to process,
+choose whether folder structure supplies console metadata, and press **Scan**.
+**Rebuild** forces reinspection of every source and all metadata adapters that
+are currently available; ordinary Scan is the fast path and reuses matching
+completed sources. Cancelling
 retains complete source/archive checkpoints, and the next matching scan resumes
 after rediscovery validates them. **Add Files** intentionally adds each file's
 containing folder as a complete scan root.
+
+**Test Files** verifies every indexed physical source. Missing sources are
+marked inactive but their tracks, metadata, fingerprints, archive identities,
+and scan inventory remain in the database. Both players omit inactive sources.
+If a source returns at the same path, the next test restores it immediately;
+future unique-fingerprint relocation matching remains planned. **Clear Dead
+Links** is the explicit destructive operation that purges inactive records after
+confirmation. Removing a checked root only detaches it and retains its records.
+
+Root status is grey before a completed scan, green when all supported sources
+completed without recorded errors, and yellow when failed or inactive sources
+need attention.
 
 MediaScanner publishes a root atomically. A failed refresh retains the last
 known-good rows for that source and reports the new failure. Required structural
@@ -71,9 +86,12 @@ catalog is still held in WAL mode.
 - Structurally known single rows for standard audio, modules, and registered
   VGM-family formats whose optional metadata can remain empty.
 
+MediaScanner does not yet embed every CocoaSpice playback codec. It currently
+uses libgme plus bounded direct metadata readers and structural policies.
 Dependency-enumerated GSF/vgmstream families still require shared native
 adapters. Until those adapters are present, affected sources are diagnostics,
-not incomplete catalog rows.
+not incomplete catalog rows. Playback codecs remain player-owned until each is
+extracted behind a scanner-safe metadata/structure adapter.
 
 ## Verify
 

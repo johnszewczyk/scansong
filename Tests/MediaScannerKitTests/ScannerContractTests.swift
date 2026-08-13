@@ -114,6 +114,30 @@ import Testing
     #expect(journalMode == ["delete"])
 }
 
+@Test func linkTestingRetainsMissingRowsAndClearDeadLinksPurgesThem() async throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("MediaScanner-links-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let root = directory.appendingPathComponent("Library", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let media = root.appendingPathComponent("Track.wav")
+    try Data("fixture".utf8).write(to: media)
+    let databaseURL = directory.appendingPathComponent("Library.sqlite")
+    _ = try await CatalogScanner(databaseURL: databaseURL).scan(rootURL: root, mode: .newScan)
+
+    let writer = try CanonicalCatalogWriter(databaseURL: databaseURL)
+    try FileManager.default.removeItem(at: media)
+    let tested = try writer.testFiles()
+    #expect(tested.testedSourceCount == 1)
+    #expect(tested.missingSourceCount == 1)
+    #expect(try writer.roots().first?.deadSourceCount == 1)
+    #expect(try CanonicalCatalog.inspect(databaseURL: databaseURL).trackCount == 1)
+
+    #expect(try writer.clearDeadLinks() == 1)
+    #expect(try writer.roots().first?.deadSourceCount == 0)
+    #expect(try CanonicalCatalog.inspect(databaseURL: databaseURL).trackCount == 0)
+}
+
 @Test func scannerMetadataRoundTripsWithoutAHostModel() throws {
     let metadata = ScannerMetadata(
         game: "Castlevania",
