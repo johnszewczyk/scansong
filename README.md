@@ -15,9 +15,13 @@ The repository contains:
 ## Use the native app
 
 ```bash
-./build-app.sh
 ./launch.sh
 ```
+
+`launch.sh` always removes the prior SwiftPM build and assembled app, performs a
+clean release build, ad-hoc signs the new bundle, stops any existing
+MediaScanner process, and opens that exact bundle as a new instance. Use
+`build-app.sh` alone when a clean build without launch is required.
 
 Choose an existing schema-23 catalog or create a new `Library.sqlite`, add scan
 folders, choose the console-tag source, and press **Scan**. **Rebuild** forces

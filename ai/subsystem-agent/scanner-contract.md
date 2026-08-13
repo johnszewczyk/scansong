@@ -52,6 +52,8 @@
 - Required adapters currently implemented in-process are libgme enumeration,
   SPC tags, PSF tags, and plain VGM metadata. Missing dependency-enumeration
   adapters fail explicitly until moved into this package.
+- `build-app.sh` removes `.build` before every release build. `launch.sh`
+  refuses to open the new bundle while an older MediaScanner process remains.
 
 ## Files
 
@@ -61,3 +63,5 @@
 - [StandaloneArchiveExtractor.swift](/Users/john/Downloads/Code/MediaScanner/Sources/MediaScannerKit/StandaloneArchiveExtractor.swift)
 - [MediaScanCommand.swift](/Users/john/Downloads/Code/MediaScanner/Sources/media-scan/MediaScanCommand.swift)
 - [MediaScannerApp.swift](/Users/john/Downloads/Code/MediaScanner/Sources/MediaScannerApp/MediaScannerApp.swift)
+- [build-app.sh](/Users/john/Downloads/Code/MediaScanner/build-app.sh)
+- [launch.sh](/Users/john/Downloads/Code/MediaScanner/launch.sh)

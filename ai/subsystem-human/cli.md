@@ -2,6 +2,8 @@
 
 ## Native App
 
+- `launch.sh` always clean-builds and signs a new app bundle, stops an existing
+  MediaScanner process, and opens the exact new bundle.
 - New and Browse choose the schema-23 catalog MediaScanner alone may modify.
 - Add Folders adds complete scan roots. Add Files adds each selected file's
   containing folder as a complete root.
