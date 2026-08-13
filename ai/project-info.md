@@ -3,8 +3,9 @@
 ## Product
 
 - `MediaScanner` is the independent Swift package that owns the scanner contract being consumed by CocoaSpice and staged by SPCBoy.
-- `MediaScannerKit` owns routing policy, recursive discovery, host-neutral metadata/results, scan inventory and planning primitives, lifecycle/telemetry, archive/format plugin protocols, cancellation-aware resource scheduling, and dry-run probing.
+- `MediaScannerKit` owns routing policy, recursive discovery, host-neutral metadata/results, scan inventory and planning primitives, lifecycle/telemetry, archive/format plugin protocols, cancellation-aware resource scheduling, and cancellable dry-run probing.
 - `media-scan` exposes the engine through a versioned JSONL command-line protocol.
+- `MediaScanner` is the native macOS test host for catalog selection, file/folder intake, probe status, diagnostics, and cancellation.
 
 ## Task Routing
 

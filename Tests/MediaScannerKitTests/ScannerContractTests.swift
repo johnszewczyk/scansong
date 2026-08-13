@@ -27,6 +27,17 @@ import Testing
     #expect(result.events.last?.discovered == 2)
 }
 
+@Test func dryRunStopsBeforeWorkWhenCancellationIsRequested() throws {
+    #expect(throws: CancellationError.self) {
+        try DryRunProbe().run(
+            paths: [FileManager.default.temporaryDirectory.path],
+            recursive: true,
+            strict: false,
+            isCancelled: { true }
+        )
+    }
+}
+
 @Test func everyEventCarriesTheProcessContractVersion() throws {
     let event = ScannerEvent(kind: .sessionStarted, sequence: 0)
     let data = try JSONEncoder().encode(event)

@@ -5,6 +5,34 @@ public struct DryRunProbeResult: Sendable {
     public let hasErrors: Bool
 }
 
+public enum DryRunProbePhase: String, Sendable {
+    case discovering
+    case routing
+    case finished
+}
+
+public struct DryRunProbeProgress: Sendable {
+    public let phase: DryRunProbePhase
+    public let path: String?
+    public let discovered: Int
+    public let processed: Int
+    public let total: Int?
+
+    public init(
+        phase: DryRunProbePhase,
+        path: String?,
+        discovered: Int,
+        processed: Int,
+        total: Int?
+    ) {
+        self.phase = phase
+        self.path = path
+        self.discovered = discovered
+        self.processed = processed
+        self.total = total
+    }
+}
+
 public enum DryRunProbeError: LocalizedError {
     case missingPath(String)
     case directoryRequiresRecursive(String)
@@ -26,15 +54,34 @@ public struct DryRunProbe: Sendable {
         self.registry = registry
     }
 
-    public func run(paths: [String], recursive: Bool, strict: Bool) throws -> DryRunProbeResult {
+    public func run(
+        paths: [String],
+        recursive: Bool,
+        strict: Bool,
+        isCancelled: @Sendable () -> Bool = { false },
+        progress: @Sendable (DryRunProbeProgress) -> Void = { _ in }
+    ) throws -> DryRunProbeResult {
         var sequence = 0
         var events: [ScannerEvent] = [ScannerEvent(kind: .sessionStarted, sequence: sequence)]
         sequence += 1
-        let inputs = try collectInputs(paths: paths, recursive: recursive)
+        let inputs = try collectInputs(
+            paths: paths,
+            recursive: recursive,
+            isCancelled: isCancelled,
+            progress: progress
+        )
         var accepted = 0
         var unsupported = 0
 
-        for url in inputs {
+        for (index, url) in inputs.enumerated() {
+            try checkCancellation(isCancelled)
+            progress(DryRunProbeProgress(
+                phase: .routing,
+                path: url.path,
+                discovered: inputs.count,
+                processed: index,
+                total: inputs.count
+            ))
             events.append(ScannerEvent(kind: .sourceDiscovered, sequence: sequence, path: url.path))
             sequence += 1
             if let route = registry.route(pathExtension: url.pathExtension) {
@@ -60,6 +107,15 @@ public struct DryRunProbe: Sendable {
             sequence += 1
         }
 
+        try checkCancellation(isCancelled)
+        progress(DryRunProbeProgress(
+            phase: .finished,
+            path: nil,
+            discovered: inputs.count,
+            processed: inputs.count,
+            total: inputs.count
+        ))
+
         events.append(ScannerEvent(
             kind: .sessionFinished,
             sequence: sequence,
@@ -70,9 +126,15 @@ public struct DryRunProbe: Sendable {
         return DryRunProbeResult(events: events, hasErrors: strict && unsupported > 0)
     }
 
-    private func collectInputs(paths: [String], recursive: Bool) throws -> [URL] {
+    private func collectInputs(
+        paths: [String],
+        recursive: Bool,
+        isCancelled: @Sendable () -> Bool,
+        progress: @Sendable (DryRunProbeProgress) -> Void
+    ) throws -> [URL] {
         var results: [URL] = []
         for path in paths {
+            try checkCancellation(isCancelled)
             let url = URL(fileURLWithPath: path).standardizedFileURL
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
@@ -83,6 +145,13 @@ public struct DryRunProbe: Sendable {
             }
             if !isDirectory.boolValue {
                 results.append(url)
+                progress(DryRunProbeProgress(
+                    phase: .discovering,
+                    path: url.path,
+                    discovered: results.count,
+                    processed: 0,
+                    total: nil
+                ))
                 continue
             }
             guard recursive else { throw DryRunProbeError.directoryRequiresRecursive(url.path) }
@@ -94,11 +163,26 @@ public struct DryRunProbe: Sendable {
                 throw DryRunProbeError.unreadablePath(url.path)
             }
             for case let child as URL in enumerator {
+                try checkCancellation(isCancelled)
                 let values = try child.resourceValues(forKeys: [.isRegularFileKey, .isHiddenKey])
-                if values.isRegularFile == true && values.isHidden != true { results.append(child.standardizedFileURL) }
+                if values.isRegularFile == true && values.isHidden != true {
+                    let standardizedChild = child.standardizedFileURL
+                    results.append(standardizedChild)
+                    progress(DryRunProbeProgress(
+                        phase: .discovering,
+                        path: standardizedChild.path,
+                        discovered: results.count,
+                        processed: 0,
+                        total: nil
+                    ))
+                }
             }
         }
         return results.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+    }
+
+    private func checkCancellation(_ isCancelled: @Sendable () -> Bool) throws {
+        if isCancelled() { throw CancellationError() }
     }
 
     private func isArchive(_ url: URL) -> Bool {
