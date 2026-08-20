@@ -173,45 +173,6 @@ public enum ScanPipelineResult: Sendable {
     }
 }
 
-public struct ScanPlan: Sendable {
-    public let mode: ScanMode
-    public let candidates: [ScanCandidate]
-
-    public init(mode: ScanMode, candidates: [ScanCandidate]) {
-        self.mode = mode
-        self.candidates = candidates
-    }
-
-    public var count: Int { candidates.count }
-}
-
-public enum ScanPlanner {
-    public static func makePlan(
-        mode: ScanMode,
-        items: [ScanInventoryItem],
-        sourceURLs: [ScanItemIdentity: URL],
-        currentFingerprints: [ScanItemIdentity: ScanFingerprint]
-    ) -> ScanPlan {
-        let candidates = items.compactMap { item -> ScanCandidate? in
-            guard let sourceURL = sourceURLs[item.identity] else { return nil }
-            let fingerprint = currentFingerprints[item.identity] ?? item.fingerprint
-            guard ScanSelection.includes(item, mode: mode, currentFingerprint: fingerprint) else { return nil }
-            return ScanCandidate(
-                identity: item.identity,
-                fingerprint: fingerprint,
-                sourceURL: sourceURL,
-                route: item.route
-            )
-        }
-        return ScanPlan(mode: mode, candidates: candidates.sorted {
-            if $0.identity.path != $1.identity.path {
-                return $0.identity.path.localizedStandardCompare($1.identity.path) == .orderedAscending
-            }
-            return ($0.identity.archiveEntry ?? "") < ($1.identity.archiveEntry ?? "")
-        })
-    }
-}
-
 public protocol ScanArchiveProvider: Sendable {
     func listMembers(in archiveURL: URL, supportedExtensions: Set<String>) async throws -> ScanArchiveListing
     func materialize(archiveURL: URL, entryPath: String) async throws -> URL
@@ -346,7 +307,7 @@ public enum ScanOperationTimeout {
     }
 }
 
-public struct ScanPhaseTelemetry: Sendable {
+public struct ScanPhaseTelemetry: Codable, Sendable {
     public let elapsedMilliseconds: Int
     public let phaseMilliseconds: [ScanLifecyclePhase: Int]
 

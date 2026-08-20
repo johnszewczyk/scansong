@@ -26,7 +26,7 @@ private func writeFatal(_ message: String) throws {
 }
 
 private func usage() -> String {
-    "Usage: media-scan plugins | probe [--recursive] [--strict] PATH... | catalog create|validate|roots PATH | scan [--new] [--console-source=folders|metadata] CATALOG ROOT..."
+    "Usage: media-scan plugins | probe [--recursive] [--strict] PATH... | catalog create|validate|roots PATH | scan [--new] CATALOG ROOT..."
 }
 
 private final class SequencedEventWriter: @unchecked Sendable {
@@ -113,8 +113,8 @@ private struct MediaScanCommand {
             let summary = try CanonicalCatalog.inspect(databaseURL: url)
             try write(ScannerEvent(kind: .catalogValidated, sequence: 0, path: summary.path, catalog: summary))
         case "roots":
-            let writer = try CanonicalCatalogWriter(databaseURL: url)
-            for (index, root) in try writer.roots().enumerated() {
+            let reader = try CanonicalCatalogReader(databaseURL: url)
+            for (index, root) in try reader.roots().enumerated() {
                 try write(ScannerEvent(kind: .sourceDiscovered, sequence: index, path: root.path))
             }
         default:
@@ -125,14 +125,13 @@ private struct MediaScanCommand {
 
     private static func runScan(_ arguments: [String]) async throws {
         let mode: ScanMode = arguments.contains("--new") ? .newScan : .incremental
-        let consoleSourcePolicy: CatalogConsoleSourcePolicy
-        if arguments.contains("--console-source=metadata") {
-            consoleSourcePolicy = .metadataFirst
-        } else if arguments.contains(where: { $0.hasPrefix("--console-source=") && $0 != "--console-source=folders" }) {
-            try writeFatal("console source must be folders or metadata")
-            throw Exit.code(64)
-        } else {
-            consoleSourcePolicy = .foldersFirst
+        var inspectionPermits = 8
+        if let index = arguments.firstIndex(of: "--permits"), index + 1 < arguments.count {
+            inspectionPermits = Int(arguments[index + 1]).flatMap { $0 > 0 ? $0 : nil } ?? inspectionPermits
+        }
+        var archivePipelineLimit = 4
+        if let index = arguments.firstIndex(of: "--archive-limit"), index + 1 < arguments.count {
+            archivePipelineLimit = Int(arguments[index + 1]).flatMap { $0 > 0 ? $0 : nil } ?? archivePipelineLimit
         }
         let paths = arguments.filter { !$0.hasPrefix("--") }
         guard paths.count >= 2 else {
@@ -143,7 +142,8 @@ private struct MediaScanCommand {
         let roots = paths.dropFirst().map { URL(fileURLWithPath: $0).standardizedFileURL }
         let scanner = try CatalogScanner(
             databaseURL: databaseURL,
-            consoleSourcePolicy: consoleSourcePolicy
+            inspectionPermits: inspectionPermits,
+            archivePipelineLimit: archivePipelineLimit
         )
         try write(ScannerEvent(kind: .sessionStarted, sequence: 0, path: databaseURL.path))
         let events = SequencedEventWriter(startingAt: 1)
@@ -152,6 +152,7 @@ private struct MediaScanCommand {
             var discovered = 0
             var accepted = 0
             var failed = 0
+            var phaseMilliseconds: [ScanLifecyclePhase: Int] = [:]
             for root in roots {
                 let result = try await scanner.scan(rootURL: root, mode: mode) { update in
                     let detail = "\(update.phase.rawValue): \(update.processed)/\(update.discovered), \(update.failed) failed"
@@ -167,6 +168,9 @@ private struct MediaScanCommand {
                 discovered += result.discoveredSourceCount
                 accepted += result.trackCount
                 failed += result.failures.count
+                for (phase, milliseconds) in result.telemetry.phaseMilliseconds {
+                    phaseMilliseconds[phase, default: 0] += milliseconds
+                }
                 for failure in result.failures {
                     events.emit { sequence in
                         ScannerEvent(
@@ -189,7 +193,9 @@ private struct MediaScanCommand {
                     sequence: sequence,
                     discovered: discovered,
                     accepted: accepted,
-                    unsupported: failed
+                    failed: failed,
+                    unsupported: failed,
+                    telemetry: ScanPhaseTelemetry(elapsedMilliseconds: phaseMilliseconds.values.reduce(0, +), phaseMilliseconds: phaseMilliseconds)
                 )
             }
             return failed

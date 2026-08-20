@@ -9,8 +9,8 @@ The repository contains:
 - `MediaScannerKit`, the host-independent scanner, archive, metadata, staging,
   resume, and schema-23 publication implementation.
 - `media-scan`, a versioned JSONL command-line boundary for Electron and tests.
-- `MediaScanner`, a small native macOS GUI for choosing/creating a catalog,
-  adding roots, scanning, cancelling, resuming, and reading diagnostics.
+- `MediaScanner`, a small native macOS GUI for managing one catalog file,
+  adding roots, scanning, cancelling, resuming, and reading per-path logs.
 
 ## Use the native app
 
@@ -28,31 +28,37 @@ Its LaunchPad row runs the same clean `build-app.sh` contract before opening the
 new bundle.
 
 Choose an existing schema-23 catalog or create a new `Library.sqlite`. Existing
-attached roots load from the catalog automatically. Check the roots to process,
-choose whether folder structure supplies console metadata, and press **Scan**.
-**Rebuild** forces reinspection of every source and all metadata adapters that
-are currently available; ordinary Scan is the fast path and reuses matching
-completed sources. Cancelling
-retains complete source/archive checkpoints, and the next matching scan resumes
-after rediscovery validates them. **Add Files** intentionally adds each file's
-containing folder as a complete scan root.
+attached paths load from the catalog automatically. **Add Path** adds complete
+folder roots; each path can be enabled for **Scan All** or scanned directly.
+Every path has Scan, Show Last Scan Log, and Remove controls. **Deep Scan**
+forces reinspection of every source and all currently available metadata
+adapters; ordinary Scan is the fast path and reuses matching completed sources.
+Cancelling retains complete source/archive checkpoints, and the next matching
+scan resumes after rediscovery validates them.
 
-**Test Files** verifies every indexed physical source. Missing sources are
-marked inactive but their tracks, metadata, fingerprints, archive identities,
-and scan inventory remain in the database. Both players omit inactive sources.
-If a source returns at the same path, the next test restores it immediately;
-future unique-fingerprint relocation matching remains planned. **Clear Dead
-Links** is the explicit destructive operation that purges inactive records after
-confirmation. Removing a checked root only detaches it and retains its records.
+**Check Links** verifies every indexed physical source. Missing or moved paths
+are marked inactive, so neither player shows them, while their tracks,
+metadata, fingerprints, archive identities, and scan inventory remain in the
+catalog. If a source returns at the same path, the next check restores it.
+**Clean Links** is the explicit destructive operation that permanently purges
+only inactive catalog records after confirmation; it never deletes media files.
+Removing a scan path only detaches it and retains its records.
 
-Root status is grey before a completed scan, green when all supported sources
-completed without recorded errors, and yellow when failed or inactive sources
-need attention.
+Each path shows its last scan time, source count, active track count, and issue
+count. Its last-result log uses `status: result: file` rows, with the variable
+file path last. Path status is grey before a
+completed scan, green when all supported sources completed cleanly, yellow when
+failed or inactive sources need attention, and red when a completed scan has no
+playable files.
 
 MediaScanner publishes a root atomically. A failed refresh retains the last
-known-good rows for that source and reports the new failure. Required structural
-parsers fail explicitly when their native adapter is unavailable; the scanner
-does not invent a single track or invoke a player-owned fallback.
+known-good rows for that source and reports the new failure. Player reads and
+playback may continue while MediaScanner scans: the app holds an advisory
+writer lease only to prevent a second scanner from modifying the same catalog.
+No player-state lock is shown. If SQLite reports the catalog busy after its
+wait, the scanner leaves the catalog consistent and asks you to retry. Required structural parsers fail
+explicitly when their native adapter is unavailable; the scanner does not
+invent a single track or invoke a player-owned fallback.
 
 ## Command line
 
@@ -63,7 +69,9 @@ swift run media-scan catalog create /path/to/Library.sqlite
 swift run media-scan catalog validate /path/to/Library.sqlite
 swift run media-scan catalog roots /path/to/Library.sqlite
 swift run media-scan scan /path/to/Library.sqlite /path/to/root
-swift run media-scan scan --new --console-source=metadata /path/to/Library.sqlite /path/to/root
+swift run media-scan scan --new /path/to/Library.sqlite /path/to/root
+swift run media-scan scan --permits 16 /path/to/Library.sqlite /path/to/root
+swift run media-scan scan --archive-limit 8 /path/to/Library.sqlite /path/to/root
 ```
 
 `probe` is always dry-run. `scan` writes only the selected catalog. Standard
@@ -71,10 +79,13 @@ output is reserved for ordered, versioned JSONL events; errors and unsupported
 required adapters produce a nonzero exit status. SIGINT and SIGTERM cancel
 cooperatively after completed checkpoints have been saved.
 
-The writer intentionally uses SQLite rollback-journal (`DELETE`) mode so the
-catalog remains a self-contained file that CocoaSpice and SPCBoy can open with
-OS-level read-only handles. Close player processes before a scan if an older
-catalog is still held in WAL mode.
+MediaScanner preserves the catalog's existing durable SQLite journal mode. New
+catalogs start in SQLite's default rollback-journal (`DELETE`) mode; existing
+WAL catalogs stay in WAL mode so player reads and scanner writes can coexist.
+Do not copy a live WAL catalog without its `-wal` and `-shm` companion files.
+MediaScanner never switches journal mode during a scan or link-maintenance
+operation, so an open player does not turn that operation into a catalog-busy
+error.
 
 ## Implemented intake
 
@@ -82,16 +93,31 @@ catalog is still held in WAL mode.
   materialization, path/symlink validation, cancellation, and cleanup.
 - Native libgme enumeration and metadata for NSF, NSFE, GBS, AY, HES, KSS, SAP,
   SPC, and related registered formats.
-- Direct bounded SPC ID666/xID6, PSF footer-tag, and plain VGM GD3/timing reads.
-- Structurally known single rows for standard audio, modules, and registered
-  VGM-family formats whose optional metadata can remain empty.
+- Direct bounded SPC ID666/xID6, PSF footer-tag, plain VGM GD3/timing, and
+  Commodore 64 SID PSID/RSID header reads.
+- Structurally known single rows for standard audio (including OGG Vorbis),
+  modules, and registered formats whose optional metadata can remain empty.
+- Tracker/module rows (S3M, MOD, IT, XM, MTM, STM, and related) via
+  `openmpt123` inspection, one structurally-known row per module.
+- A scanner-owned vgmstream plugin that uses the bundled `vgmstream-cli`
+  (pinned to the r2117 release) to open raw vgmstream formats and enumerate
+  real subsongs before publishing rows.
+- A scanner-owned Highly Complete plugin that opens GSF and miniGSF through
+  the bundled inspection adapter. A miniGSF is accepted only when its required
+  `.gsflib` dependency is present in the extracted source archive; every
+  validated file becomes its real single playable row with its authored tags.
 
-MediaScanner does not yet embed every CocoaSpice playback codec. It currently
-uses libgme plus bounded direct metadata readers and structural policies.
-Dependency-enumerated GSF/vgmstream families still require shared native
-adapters. Until those adapters are present, affected sources are diagnostics,
-not incomplete catalog rows. Playback codecs remain player-owned until each is
-extracted behind a scanner-safe metadata/structure adapter.
+MediaScanner does not yet embed every playback codec. Each intake plugin owns
+its structural and metadata boundary and returns only tracks it actually opens.
+Dependency-based vgmstream formats such as HD banks and TXTP, plus formats
+without a registered scanner plugin, remain explicit diagnostics rather than
+incomplete or invented catalog rows. Playback remains player-owned.
+
+Formats without a scanner adapter (for example SNSF and the WonderSwan/Game
+Gear oddball families) are not indexed; those sources report
+`No supported playable tracks were found` until an adapter or decoder core is
+added. SNSF is a PSF-family format whose decoding requires an SPC700 player
+core.
 
 ## Verify
 

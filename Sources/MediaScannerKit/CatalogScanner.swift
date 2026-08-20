@@ -35,6 +35,7 @@ public struct CatalogScanResult: Sendable {
     public let reusedSourceCount: Int
     public let trackCount: Int
     public let failures: [ScanFailure]
+    public let telemetry: ScanPhaseTelemetry
 
     public init(
         root: CatalogRoot,
@@ -42,7 +43,8 @@ public struct CatalogScanResult: Sendable {
         scannedSourceCount: Int,
         reusedSourceCount: Int,
         trackCount: Int,
-        failures: [ScanFailure]
+        failures: [ScanFailure],
+        telemetry: ScanPhaseTelemetry = .empty
     ) {
         self.root = root
         self.discoveredSourceCount = discoveredSourceCount
@@ -50,6 +52,7 @@ public struct CatalogScanResult: Sendable {
         self.reusedSourceCount = reusedSourceCount
         self.trackCount = trackCount
         self.failures = failures
+        self.telemetry = telemetry
     }
 }
 
@@ -60,21 +63,23 @@ public final class CatalogScanner: @unchecked Sendable {
     private let registry: ScannerPluginRegistry
     private let handlers: ScanPluginHandlerRegistry
     private let archiveExtractor: StandaloneArchiveExtractor
+    private let inspectionScheduler: ScanResourceScheduler
+    private let archivePipelineLimit: Int
 
     public init(
         databaseURL: URL,
-        consoleSourcePolicy: CatalogConsoleSourcePolicy = .foldersFirst,
         registry: ScannerPluginRegistry = BuiltInScannerPlugins.registry,
         handlers: ScanPluginHandlerRegistry = BuiltInFormatInspectors.registry,
-        archiveExtractor: StandaloneArchiveExtractor = StandaloneArchiveExtractor()
+        archiveExtractor: StandaloneArchiveExtractor = StandaloneArchiveExtractor(),
+        inspectionPermits: Int = 8,
+        archivePipelineLimit: Int = 4
     ) throws {
-        writer = try CanonicalCatalogWriter(
-            databaseURL: databaseURL,
-            consoleSourcePolicy: consoleSourcePolicy
-        )
+        writer = try CanonicalCatalogWriter(databaseURL: databaseURL)
         self.registry = registry
         self.handlers = handlers
         self.archiveExtractor = archiveExtractor
+        inspectionScheduler = ScanResourceScheduler(permits: inspectionPermits)
+        self.archivePipelineLimit = max(1, archivePipelineLimit)
     }
 
     public func scan(
@@ -91,6 +96,7 @@ public final class CatalogScanner: @unchecked Sendable {
         var tracks = 0
         var failures: [ScanFailure] = []
         var discovered = 0
+        let timeline = ScanPhaseTimeline()
 
         func emit(_ phase: ScanLifecyclePhase, currentPath: String? = nil) {
             progress?(CatalogScanProgress(
@@ -105,6 +111,7 @@ public final class CatalogScanner: @unchecked Sendable {
         }
 
         do {
+            timeline.enter(.discovery)
             emit(.discovery)
             let candidates = try await ScanFilesystemDiscovery.discover(
                 rootID: root.id,
@@ -114,8 +121,14 @@ public final class CatalogScanner: @unchecked Sendable {
             )
             discovered = candidates.count
             try writer.synchronizeStage(stageID: stageID, discoveredPaths: Set(candidates.map(\.identity.path)))
+
+            timeline.enter(.planning)
             emit(.planning)
 
+            // Serial reuse pass. These are cheap fingerprint reads against the
+            // writer and must not interleave with concurrent inspection commits.
+            timeline.enter(.inspection)
+            var pending: [ScanCandidate] = []
             for candidate in candidates {
                 try Task.checkCancellation()
                 emit(.inspection, currentPath: candidate.identityDescription)
@@ -143,19 +156,18 @@ public final class CatalogScanner: @unchecked Sendable {
                     reused += 1
                     continue
                 }
+                pending.append(candidate)
+            }
 
-                do {
-                    let records: [CatalogTrackRecord]
-                    if StandaloneArchiveExtractor.isSupportedArchive(candidate.sourceURL) {
-                        records = try await inspectArchive(candidate)
-                    } else {
-                        records = try await inspectLoose(candidate)
-                    }
-                    guard !records.isEmpty else {
-                        throw ScannerInspectionError.malformedFile(
-                            "No supported playable tracks were found in \(candidate.sourceURL.lastPathComponent)."
-                        )
-                    }
+            // Concurrent inspection pipeline. Multiple sources extract and
+            // inspect at once, but all member inspections share one permit pool
+            // so the total subprocess count stays bounded. The writer is only
+            // touched here (serial checkpoint commits), never by pipeline tasks.
+            let outcomes = try await inspectPending(pending, pipelineLimit: archivePipelineLimit)
+            for candidate in pending {
+                try Task.checkCancellation()
+                switch outcomes[candidate.identity.path] {
+                case .success(let records):
                     try writer.checkpoint(
                         stageID: stageID,
                         rootPath: root.path,
@@ -165,10 +177,7 @@ public final class CatalogScanner: @unchecked Sendable {
                     )
                     tracks += records.count
                     scanned += 1
-                    processed += 1
-                } catch is CancellationError {
-                    throw CancellationError()
-                } catch {
+                case .failure(let message):
                     let stage: ScanFailureStage = StandaloneArchiveExtractor.isSupportedArchive(candidate.sourceURL)
                         ? .archiveExtraction : .metadata
                     let failure = ScanFailure(
@@ -176,7 +185,7 @@ public final class CatalogScanner: @unchecked Sendable {
                         fingerprint: candidate.fingerprint,
                         route: candidate.route,
                         stage: stage,
-                        message: error.localizedDescription
+                        message: message
                     )
                     try writer.preserveLiveSourceAfterFailure(
                         rootID: root.id,
@@ -187,15 +196,18 @@ public final class CatalogScanner: @unchecked Sendable {
                         failure: failure
                     )
                     failures.append(failure)
-                    processed += 1
+                case .cancelled, nil:
+                    throw CancellationError()
                 }
+                processed += 1
                 emit(.persistence, currentPath: candidate.identityDescription)
             }
 
-            try Task.checkCancellation()
+            timeline.enter(.publication)
             emit(.publication)
             try writer.publish(stageID: stageID, targetRootID: root.id)
             let published = try writer.roots().first(where: { $0.id == root.id }) ?? root
+            timeline.enter(.cleanup)
             emit(.cleanup)
             return CatalogScanResult(
                 root: published,
@@ -203,7 +215,8 @@ public final class CatalogScanner: @unchecked Sendable {
                 scannedSourceCount: scanned,
                 reusedSourceCount: reused,
                 trackCount: published.lastScanTrackCount,
-                failures: failures
+                failures: failures,
+                telemetry: timeline.snapshot()
             )
         } catch is CancellationError {
             writer.pause(stageID: stageID, error: "Cancelled")
@@ -212,6 +225,62 @@ public final class CatalogScanner: @unchecked Sendable {
             writer.pause(stageID: stageID, error: error.localizedDescription)
             writer.markFailed(rootID: root.id, message: error.localizedDescription)
             throw error
+        }
+    }
+
+    private enum CandidateInspectionOutcome {
+        case success([CatalogTrackRecord])
+        case failure(String)
+        case cancelled
+    }
+
+    private func inspectPending(
+        _ pending: [ScanCandidate],
+        pipelineLimit: Int
+    ) async throws -> [String: CandidateInspectionOutcome] {
+        var outcomes: [String: CandidateInspectionOutcome] = [:]
+        if pending.isEmpty { return outcomes }
+        try await withThrowingTaskGroup(of: (String, CandidateInspectionOutcome).self) { group in
+            var next = 0
+            var inFlight = 0
+            while next < pending.count || inFlight > 0 {
+                while next < pending.count && inFlight < pipelineLimit {
+                    let candidate = pending[next]
+                    next += 1
+                    inFlight += 1
+                    group.addTask {
+                        let outcome = await self.inspectCandidate(candidate)
+                        return (candidate.identity.path, outcome)
+                    }
+                }
+                if let (path, outcome) = try await group.next() {
+                    inFlight -= 1
+                    outcomes[path] = outcome
+                }
+            }
+        }
+        return outcomes
+    }
+
+    private func inspectCandidate(_ candidate: ScanCandidate) async -> CandidateInspectionOutcome {
+        do {
+            try Task.checkCancellation()
+            let records: [CatalogTrackRecord]
+            if StandaloneArchiveExtractor.isSupportedArchive(candidate.sourceURL) {
+                records = try await inspectArchive(candidate)
+            } else {
+                records = try await inspectLoose(candidate)
+            }
+            guard !records.isEmpty else {
+                throw ScannerInspectionError.malformedFile(
+                    "No supported playable tracks were found in \(candidate.sourceURL.lastPathComponent)."
+                )
+            }
+            return .success(records)
+        } catch is CancellationError {
+            return .cancelled
+        } catch {
+            return .failure(error.localizedDescription)
         }
     }
 
@@ -239,10 +308,32 @@ public final class CatalogScanner: @unchecked Sendable {
             registry: registry
         )
         defer { archiveExtractor.discard(archive) }
+
+        // Inspect members concurrently under a bounded permit pool. Subprocess
+        // adapters (vgmstream, Highly Complete) dominate wall time; bounding
+        // the pool keeps memory and process count predictable while preserving
+        // deterministic record order via per-index collection.
+        let members = archive.members
+        var inspections: [ScanInspection?] = Array(repeating: nil, count: members.count)
+        try await withThrowingTaskGroup(of: (Int, ScanInspection).self) { group in
+            for (index, member) in members.enumerated() {
+                try Task.checkCancellation()
+                group.addTask {
+                    let inspection = try await self.inspectionScheduler.withPermit {
+                        try await self.inspect(fileURL: member.fileURL, route: member.route)
+                    }
+                    return (index, inspection)
+                }
+            }
+            for try await (index, inspection) in group {
+                inspections[index] = inspection
+            }
+        }
+
         var records: [CatalogTrackRecord] = []
-        for member in archive.members {
+        for (index, member) in members.enumerated() {
+            guard let inspection = inspections[index] else { continue }
             try Task.checkCancellation()
-            let inspection = try await inspect(fileURL: member.fileURL, route: member.route)
             records.append(contentsOf: inspection.tracks.map {
                 CatalogTrackRecord(
                     sourcePath: candidate.identity.path,

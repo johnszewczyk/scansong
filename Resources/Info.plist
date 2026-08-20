@@ -12,6 +12,8 @@
     <string>com.local.mediascanner</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
+    <key>CFBundleIconFile</key>
+    <string>app-icon.png</string>
     <key>CFBundleName</key>
     <string>MediaScanner</string>
     <key>CFBundlePackageType</key>

@@ -159,7 +159,11 @@ public struct ScanFingerprint: Codable, Hashable, Sendable {
         if let contentSignature, let currentSignature = current.contentSignature {
             return contentSignature == currentSignature
         }
-        if fileSize == current.fileSize, modifiedAt == current.modifiedAt {
+        // Compare the persisted epoch double, not the internal Date value.
+        // `Date(timeIntervalSince1970:)` can land one double-ULP off the
+        // Foundation contentModificationDate for the same filesystem instant,
+        // so `Date ==` would silently reject unchanged sources.
+        if fileSize == current.fileSize, modifiedAt.timeIntervalSince1970 == current.modifiedAt.timeIntervalSince1970 {
             return true
         }
         return contentSignature != nil && contentSignature == current.contentSignature
@@ -177,23 +181,6 @@ public struct ScanInventoryItem: Codable, Sendable {
         self.fingerprint = fingerprint
         self.state = state
         self.route = route
-    }
-}
-
-public enum ScanSelection {
-    public static func includes(
-        _ item: ScanInventoryItem,
-        mode: ScanMode,
-        currentFingerprint: ScanFingerprint
-    ) -> Bool {
-        switch mode {
-        case .newScan:
-            return true
-        case .incremental:
-            return item.state != .successful
-                || item.fingerprint.contentSignature == nil
-                || !item.fingerprint.matches(currentFingerprint)
-        }
     }
 }
 
@@ -235,8 +222,10 @@ public struct ScannerEvent: Codable, Sendable {
     public let plugin: ScannerPluginDescriptor?
     public let discovered: Int?
     public let accepted: Int?
+    public let failed: Int?
     public let unsupported: Int?
     public let catalog: CanonicalCatalogSummary?
+    public let telemetry: ScanPhaseTelemetry?
 
     public init(
         kind: ScannerEventKind,
@@ -247,8 +236,10 @@ public struct ScannerEvent: Codable, Sendable {
         plugin: ScannerPluginDescriptor? = nil,
         discovered: Int? = nil,
         accepted: Int? = nil,
+        failed: Int? = nil,
         unsupported: Int? = nil,
-        catalog: CanonicalCatalogSummary? = nil
+        catalog: CanonicalCatalogSummary? = nil,
+        telemetry: ScanPhaseTelemetry? = nil
     ) {
         self.contract = MediaScannerContract.name
         self.version = MediaScannerContract.version
@@ -260,7 +251,9 @@ public struct ScannerEvent: Codable, Sendable {
         self.plugin = plugin
         self.discovered = discovered
         self.accepted = accepted
+        self.failed = failed
         self.unsupported = unsupported
         self.catalog = catalog
+        self.telemetry = telemetry
     }
 }

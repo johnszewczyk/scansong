@@ -122,7 +122,6 @@ public struct StandaloneArchiveExtractor: Sendable {
             includingPropertiesForKeys: keys,
             options: [.skipsHiddenFiles]
         ) else { return [] }
-
         let canonicalRoot = payloadURL.standardizedFileURL.path + "/"
         var totalBytes: Int64 = 0
         var fileCount = 0
@@ -147,9 +146,9 @@ public struct StandaloneArchiveExtractor: Sendable {
             guard totalBytes <= Self.maximumExpandedBytes else {
                 throw StandaloneArchiveError.resourceLimit("Archive expands beyond the 8 GiB scan safety limit.")
             }
-            guard let route = registry.route(for: fileURL.pathExtension, archiveMember: true) else { continue }
             let entry = String(standardizedPath.dropFirst(canonicalRoot.count))
             guard Self.isSafeRelativePath(entry) else { throw StandaloneArchiveError.unsafeEntry(entry) }
+            guard let route = registry.route(for: fileURL.pathExtension, archiveMember: true) else { continue }
             members.append(.init(
                 entryPath: entry,
                 fileURL: fileURL,
@@ -199,6 +198,7 @@ public struct StandaloneArchiveExtractor: Sendable {
         let name = url.lastPathComponent.lowercased()
         return name.hasSuffix(".tar.zst") || name.hasSuffix(".tar.zstd") || name.hasSuffix(".tzst")
     }
+
 }
 
 private final class ScannerProcessBox: @unchecked Sendable {

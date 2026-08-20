@@ -19,6 +19,33 @@ public struct CatalogLinkTestResult: Equatable, Sendable {
     public let restoredSourceCount: Int
 }
 
+/// Per-root inventory counts for the scanner UI and the last-result log.
+///
+/// `sourceCount` is physical source count: an archive remains one source even
+/// when it expands to many playable tracks. Inactive sources stay represented
+/// until an explicit link cleanup removes them.
+public struct CatalogScanTally: Equatable, Sendable {
+    public let sourceCount: Int
+    public let activeSourceCount: Int
+    public let successfulSourceCount: Int
+    public let failedSourceCount: Int
+    public let inactiveSourceCount: Int
+
+    public init(
+        sourceCount: Int,
+        activeSourceCount: Int,
+        successfulSourceCount: Int,
+        failedSourceCount: Int,
+        inactiveSourceCount: Int
+    ) {
+        self.sourceCount = sourceCount
+        self.activeSourceCount = activeSourceCount
+        self.successfulSourceCount = successfulSourceCount
+        self.failedSourceCount = failedSourceCount
+        self.inactiveSourceCount = inactiveSourceCount
+    }
+}
+
 public struct CatalogTrackRecord: Sendable {
     public let sourcePath: String
     public let archiveEntry: String?
@@ -47,28 +74,20 @@ public struct CatalogTrackRecord: Sendable {
     }
 }
 
-public enum CatalogConsoleSourcePolicy: String, CaseIterable, Codable, Sendable {
-    case foldersFirst
-    case metadataFirst
-}
-
 public final class CanonicalCatalogWriter: @unchecked Sendable {
     public static let policyVersion = 1
 
     private let database: OpaquePointer
-    private let consoleSourcePolicy: CatalogConsoleSourcePolicy
+    private let writerLease: CatalogWriterLease
     public let databaseURL: URL
 
-    public init(
-        databaseURL: URL,
-        consoleSourcePolicy: CatalogConsoleSourcePolicy = .foldersFirst
-    ) throws {
+    public init(databaseURL: URL) throws {
         self.databaseURL = databaseURL.standardizedFileURL
-        self.consoleSourcePolicy = consoleSourcePolicy
         try FileManager.default.createDirectory(
             at: self.databaseURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
+        writerLease = try CatalogWriterLease(databaseURL: self.databaseURL)
         var handle: OpaquePointer?
         let status = sqlite3_open_v2(
             self.databaseURL.path,
@@ -84,10 +103,10 @@ public final class CanonicalCatalogWriter: @unchecked Sendable {
         database = handle
         sqlite3_extended_result_codes(handle, 1)
         sqlite3_busy_timeout(handle, 10_000)
-        let journalMode = try scalarString("PRAGMA journal_mode=DELETE;").lowercased()
-        guard journalMode == "delete" else {
+        let journalMode = try scalarString("PRAGMA journal_mode;").lowercased()
+        guard journalMode == "delete" || journalMode == "wal" else {
             throw Self.error(
-                "The catalog journal could not be changed from \(journalMode) to delete mode. Close CocoaSpice and SPCBoy, then scan again."
+                "Unsupported catalog journal mode \(journalMode). Use DELETE or WAL mode."
             )
         }
         try execute("PRAGMA synchronous=NORMAL;")
@@ -122,6 +141,39 @@ public final class CanonicalCatalogWriter: @unchecked Sendable {
                 deadSourceCount: Int(sqlite3_column_int64(statement, 8))
             )
         }
+    }
+
+    /// Returns source-level counts for one attached root without expanding
+    /// archive members into misleading "file" totals.
+    public func scanTally(rootID: Int64) throws -> CatalogScanTally {
+        try queryOne(
+            """
+            SELECT
+                COUNT(*),
+                SUM(CASE WHEN d.path IS NULL THEN 1 ELSE 0 END),
+                SUM(CASE WHEN i.state='successful' THEN 1 ELSE 0 END),
+                SUM(CASE WHEN i.state='failed' THEN 1 ELSE 0 END),
+                COUNT(d.path)
+            FROM scan_items i
+            LEFT JOIN dead_sources d ON d.root_id=i.root_id AND d.path=i.path
+            WHERE i.root_id=? AND i.archive_entry='';
+            """,
+            [.integer(rootID)]
+        ) { statement in
+            CatalogScanTally(
+                sourceCount: Int(sqlite3_column_int64(statement, 0)),
+                activeSourceCount: Int(sqlite3_column_int64(statement, 1)),
+                successfulSourceCount: Int(sqlite3_column_int64(statement, 2)),
+                failedSourceCount: Int(sqlite3_column_int64(statement, 3)),
+                inactiveSourceCount: Int(sqlite3_column_int64(statement, 4))
+            )
+        } ?? CatalogScanTally(
+            sourceCount: 0,
+            activeSourceCount: 0,
+            successfulSourceCount: 0,
+            failedSourceCount: 0,
+            inactiveSourceCount: 0
+        )
     }
 
     public func testFiles() throws -> CatalogLinkTestResult {
@@ -192,6 +244,20 @@ public final class CanonicalCatalogWriter: @unchecked Sendable {
             }
             try execute("COMMIT;")
             return count
+        } catch {
+            try? execute("ROLLBACK;")
+            throw error
+        }
+    }
+
+    /// Removes every indexed record and scan path while retaining the selected
+    /// schema-23 database file for immediate reuse.
+    public func resetCatalog() throws {
+        try execute("BEGIN IMMEDIATE;")
+        do {
+            try execute("DELETE FROM library_roots;")
+            try execute("DELETE FROM sqlite_sequence WHERE name IN ('library_roots', 'tracks', 'scan_items');")
+            try execute("COMMIT;")
         } catch {
             try? execute("ROLLBACK;")
             throw error
@@ -594,12 +660,7 @@ public final class CanonicalCatalogWriter: @unchecked Sendable {
             sourcePath: record.sourcePath,
             archiveEntry: record.archiveEntry
         )
-        let browserSystem = CatalogIdentity.browserSystem(
-            metadataSystem: record.metadata?.system ?? "",
-            sourcePath: record.sourcePath,
-            rootPath: rootPath,
-            policy: consoleSourcePolicy
-        )
+        let browserSystem = CatalogIdentity.browserSystem(sourcePath: record.sourcePath, rootPath: rootPath)
         try execute(
             """
             INSERT INTO tracks
@@ -818,7 +879,13 @@ public final class CanonicalCatalogWriter: @unchecked Sendable {
         }
     }
 
-    private func databaseError() -> NSError { Self.error(String(cString: sqlite3_errmsg(database))) }
+    private func databaseError() -> Error {
+        let primaryCode = sqlite3_extended_errcode(database) & 0xFF
+        if primaryCode == SQLITE_BUSY || primaryCode == SQLITE_LOCKED {
+            return CatalogWriterError.catalogBusy(databaseURL.path)
+        }
+        return Self.error(String(cString: sqlite3_errmsg(database)))
+    }
 
     private static func string(_ statement: OpaquePointer, _ index: Int32) -> String {
         sqlite3_column_text(statement, index).map { String(cString: $0) } ?? ""
@@ -843,15 +910,29 @@ private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.sel
 
 public enum CatalogIdentity {
     private static let aliases: [String: String] = [
-        "ps1": "Sony PlayStation", "psx": "Sony PlayStation", "playstation": "Sony PlayStation",
-        "sony playstation": "Sony PlayStation",
-        "ps2": "Sony PlayStation 2", "playstation 2": "Sony PlayStation 2",
-        "sony playstation 2": "Sony PlayStation 2",
-        "snes": "Super Nintendo", "super famicom": "Super Nintendo",
-        "nes": "Nintendo Entertainment System", "n64": "Nintendo 64",
-        "saturn": "Sega Saturn", "dreamcast": "Sega Dreamcast", "genesis": "Sega Genesis",
-        "mega drive": "Sega Genesis", "game boy": "Nintendo Game Boy",
-        "game boy advance": "Nintendo Game Boy Advance", "gba": "Nintendo Game Boy Advance"
+        "3do": "3DO", "arc": "Arcade", "arcade": "Arcade", "fm towns": "FM Towns",
+        "microsoft msx": "Microsoft MSX", "msx": "Microsoft MSX",
+        "nec pc engine": "NEC PC Engine", "pce": "NEC PC Engine", "tg16": "NEC TurboGrafx-16",
+        "nec pc-98": "NEC PC-98", "pc98": "NEC PC-98", "nec pc-fx": "NEC PC-FX", "pcfx": "NEC PC-FX",
+        "nintendo 64": "Nintendo 64", "n64": "Nintendo 64", "nintendo ds": "Nintendo DS", "nds": "Nintendo DS",
+        "nintendo 3ds": "Nintendo 3DS", "3ds": "Nintendo 3DS", "nintendo switch": "Nintendo Switch", "switch": "Nintendo Switch",
+        "nintendo game boy": "Nintendo Game Boy", "game boy": "Nintendo Game Boy", "gb": "Nintendo Game Boy",
+        "nintendo game boy color": "Nintendo Game Boy Color", "game boy color": "Nintendo Game Boy Color", "gbc": "Nintendo Game Boy Color",
+        "nintendo game boy advance": "Nintendo Game Boy Advance", "game boy advance": "Nintendo Game Boy Advance", "gba": "Nintendo Game Boy Advance",
+        "nintendo entertainment system": "Nintendo Entertainment System", "nes": "Nintendo Entertainment System",
+        "super nintendo": "Super Nintendo", "super famicom": "Super Nintendo", "snes": "Super Nintendo",
+        "nintendo gamecube": "Nintendo GameCube", "gc": "Nintendo GameCube", "nintendo wii": "Nintendo Wii", "wii": "Nintendo Wii",
+        "nintendo wii u": "Nintendo Wii U", "wiiu": "Nintendo Wii U",
+        "sony psp": "Sony PSP", "psp": "Sony PSP", "sony playstation": "Sony PlayStation", "playstation": "Sony PlayStation", "ps1": "Sony PlayStation", "psx": "Sony PlayStation",
+        "sony playstation 2": "Sony PlayStation 2", "playstation 2": "Sony PlayStation 2", "ps2": "Sony PlayStation 2",
+        "sony playstation 3": "Sony PlayStation 3", "playstation 3": "Sony PlayStation 3", "ps3": "Sony PlayStation 3",
+        "sony playstation vita": "Sony PlayStation Vita", "playstation vita": "Sony PlayStation Vita", "psv": "Sony PlayStation Vita",
+        "sega 32x": "Sega 32X", "sega cd": "Sega CD", "sega dreamcast": "Sega Dreamcast", "dreamcast": "Sega Dreamcast", "dc": "Sega Dreamcast",
+        "sega game gear": "Sega Game Gear", "game gear": "Sega Game Gear", "gg": "Sega Game Gear",
+        "sega genesis": "Sega Genesis", "genesis": "Sega Genesis", "mega drive": "Sega Genesis", "gen": "Sega Genesis",
+        "sega master system": "Sega Master System", "master system": "Sega Master System", "sms": "Sega Master System",
+        "sega pico": "Sega Pico", "sega saturn": "Sega Saturn", "saturn": "Sega Saturn",
+        "snk neo geo cd": "SNK Neo Geo CD", "neo geo cd": "SNK Neo Geo CD"
     ]
 
     public static func browserGame(metadataGame: String, sourcePath: String, archiveEntry: String?) -> String {
@@ -864,12 +945,7 @@ public enum CatalogIdentity {
         return parent.isEmpty ? URL(fileURLWithPath: sourcePath).deletingPathExtension().lastPathComponent : parent
     }
 
-    public static func browserSystem(
-        metadataSystem: String,
-        sourcePath: String,
-        rootPath: String,
-        policy: CatalogConsoleSourcePolicy = .foldersFirst
-    ) -> String {
+    public static func browserSystem(sourcePath: String, rootPath: String) -> String {
         let sourceComponents = URL(fileURLWithPath: sourcePath)
             .deletingLastPathComponent().standardizedFileURL.pathComponents
         let rootComponents = URL(fileURLWithPath: rootPath).standardizedFileURL.pathComponents
@@ -884,12 +960,7 @@ public enum CatalogIdentity {
                 }
             }
         }
-        let trimmedMetadata = metadataSystem.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedMetadata = normalizeSystem(trimmedMetadata) ?? (trimmedMetadata.isEmpty || trimmedMetadata == "?" ? nil : trimmedMetadata)
-        switch policy {
-        case .foldersFirst: return folderSystem ?? normalizedMetadata ?? ""
-        case .metadataFirst: return normalizedMetadata ?? folderSystem ?? ""
-        }
+        return folderSystem ?? ""
     }
 
     private static func normalizeSystem(_ value: String) -> String? {

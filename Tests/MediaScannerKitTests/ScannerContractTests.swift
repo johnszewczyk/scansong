@@ -10,6 +10,43 @@ import Testing
     #expect(registry.route(pathExtension: "gbs")?.structurePolicy == .enumerate)
     #expect(registry.route(pathExtension: "flac")?.metadataPolicy == .optionalDeferred)
     #expect(registry.route(pathExtension: "txtp")?.structurePolicy == .dependencyEnumerate)
+    #expect(registry.route(pathExtension: "sid")?.structurePolicy == .knownSingle)
+    #expect(registry.route(pathExtension: "sid")?.metadataPolicy == .direct)
+    #expect(registry.route(pathExtension: "ogg")?.metadataPolicy == .optionalDeferred)
+    #expect(registry.route(pathExtension: "ogg")?.pluginID == "standard-audio")
+    #expect(registry.route(pathExtension: "ogg")?.pluginID != "vgmstream")
+}
+
+@Test func sidHeaderReaderPublishesCommodore64Metadata() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("MediaScanner-sid-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+    var header = Data(repeating: 0, count: 0x7C)
+    header.replaceSubrange(0..<4, with: Data("PSID".utf8))
+    header[0x04] = 0; header[0x05] = 2            // version 2
+    header[0x06] = 0; header[0x07] = 0x7C          // data offset
+    header[0x08] = 0x08; header[0x09] = 0x00       // load address
+    header[0x0E] = 0; header[0x0F] = 1             // number of songs
+    header[0x10] = 0; header[0x11] = 1             // start song
+    let name = Data("Willow".utf8); header.replaceSubrange(0x16..<(0x16 + name.count), with: name)
+    let author = Data("Tester".utf8); header.replaceSubrange(0x2E..<(0x2E + author.count), with: author)
+    header[0x76] = 0; header[0x77] = 30            // PAL play length 30s
+    header[0x78] = 0; header[0x79] = 0
+
+    let fileURL = root.appendingPathComponent("Willow.sid")
+    try header.write(to: fileURL)
+
+    let route = try #require(BuiltInScannerPlugins.registry.route(pathExtension: "sid"))
+    let handler = try #require(BuiltInFormatInspectors.registry.handler(for: route))
+    let inspection = try await handler.inspect(fileURL: fileURL, route: route)
+    let metadata = try #require(inspection.tracks.first?.metadata)
+    #expect(inspection.tracks.count == 1)
+    #expect(metadata.system == "Commodore 64")
+    #expect(metadata.song == "Willow")
+    #expect(metadata.author == "Tester")
+    #expect(metadata.playLengthMs == 30_000)
 }
 
 @Test func dryRunReportsTypedRoutesWithoutWritingADataStore() throws {
@@ -114,6 +151,79 @@ import Testing
     #expect(journalMode == ["delete"])
 }
 
+@Test func catalogWriterLeaseExcludesOtherScannersButAllowsPlayerReaders() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("MediaScanner-writer-lease-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let databaseURL = directory.appendingPathComponent("Library.sqlite")
+
+    do {
+        let firstWriter = try CanonicalCatalogWriter(databaseURL: databaseURL)
+        _ = try CanonicalCatalogReader(databaseURL: databaseURL)
+        #expect(throws: CatalogWriterError.self) {
+            _ = try CanonicalCatalogWriter(databaseURL: databaseURL)
+        }
+        withExtendedLifetime(firstWriter) {}
+    }
+
+    _ = try CanonicalCatalogWriter(databaseURL: databaseURL)
+}
+
+@Test func catalogWriterPreservesWALForConcurrentPlayerReads() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("MediaScanner-wal-writer-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let databaseURL = directory.appendingPathComponent("Library.sqlite")
+    let firstRoot = directory.appendingPathComponent("First", isDirectory: true)
+    let secondRoot = directory.appendingPathComponent("Second", isDirectory: true)
+    let thirdRoot = directory.appendingPathComponent("Third", isDirectory: true)
+    try FileManager.default.createDirectory(at: firstRoot, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: secondRoot, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: thirdRoot, withIntermediateDirectories: true)
+
+    do {
+        let writer = try CanonicalCatalogWriter(databaseURL: databaseURL)
+        _ = try writer.addRoot(path: firstRoot.path)
+        withExtendedLifetime(writer) {}
+    }
+
+    var setup: OpaquePointer?
+    #expect(sqlite3_open(databaseURL.path, &setup) == SQLITE_OK)
+    let setupDatabase = try #require(setup)
+    #expect(sqlite3_exec(setupDatabase, "PRAGMA journal_mode=WAL;", nil, nil, nil) == SQLITE_OK)
+
+    // Keep the setup connection open while the first WAL transaction creates
+    // the sidecars required by a query-only player connection.
+    do {
+        let writer = try CanonicalCatalogWriter(databaseURL: databaseURL)
+        _ = try writer.addRoot(path: secondRoot.path)
+        withExtendedLifetime(writer) {}
+    }
+
+    var player: OpaquePointer?
+    #expect(sqlite3_open_v2(databaseURL.path, &player, SQLITE_OPEN_READONLY, nil) == SQLITE_OK)
+    let playerDatabase = try #require(player)
+    defer { sqlite3_close(playerDatabase) }
+    #expect(sqlite3_exec(playerDatabase, "BEGIN;", nil, nil, nil) == SQLITE_OK)
+    _ = try querySingleRow(database: playerDatabase, sql: "SELECT COUNT(*) FROM library_roots;")
+    sqlite3_close(setupDatabase)
+
+    do {
+        let writer = try CanonicalCatalogWriter(databaseURL: databaseURL)
+        _ = try writer.addRoot(path: thirdRoot.path)
+        withExtendedLifetime(writer) {}
+    }
+    #expect(sqlite3_exec(playerDatabase, "COMMIT;", nil, nil, nil) == SQLITE_OK)
+
+    var verification: OpaquePointer?
+    #expect(sqlite3_open_v2(databaseURL.path, &verification, SQLITE_OPEN_READONLY, nil) == SQLITE_OK)
+    let verificationDatabase = try #require(verification)
+    defer { sqlite3_close(verificationDatabase) }
+    #expect(try querySingleRow(database: verificationDatabase, sql: "PRAGMA journal_mode;") == ["wal"])
+}
+
 @Test func linkTestingRetainsMissingRowsAndClearDeadLinksPurgesThem() async throws {
     let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent("MediaScanner-links-\(UUID().uuidString)", isDirectory: true)
@@ -126,6 +236,14 @@ import Testing
     _ = try await CatalogScanner(databaseURL: databaseURL).scan(rootURL: root, mode: .newScan)
 
     let writer = try CanonicalCatalogWriter(databaseURL: databaseURL)
+    let reader = try CanonicalCatalogReader(databaseURL: databaseURL)
+    let rootID = try #require(try reader.roots().first?.id)
+    let beforeLinkCheck = try reader.scanTally(rootID: rootID)
+    #expect(beforeLinkCheck.sourceCount == 1)
+    #expect(beforeLinkCheck.activeSourceCount == 1)
+    #expect(beforeLinkCheck.successfulSourceCount == 1)
+    #expect(beforeLinkCheck.failedSourceCount == 0)
+    #expect(beforeLinkCheck.inactiveSourceCount == 0)
     try FileManager.default.removeItem(at: media)
     let tested = try writer.testFiles()
     #expect(tested.testedSourceCount == 1)
@@ -133,8 +251,31 @@ import Testing
     #expect(try writer.roots().first?.deadSourceCount == 1)
     #expect(try CanonicalCatalog.inspect(databaseURL: databaseURL).trackCount == 1)
 
+    let afterLinkCheck = try CanonicalCatalogReader(databaseURL: databaseURL).scanTally(rootID: rootID)
+    #expect(afterLinkCheck.sourceCount == 1)
+    #expect(afterLinkCheck.activeSourceCount == 0)
+    #expect(afterLinkCheck.inactiveSourceCount == 1)
+
     #expect(try writer.clearDeadLinks() == 1)
     #expect(try writer.roots().first?.deadSourceCount == 0)
+    #expect(try CanonicalCatalog.inspect(databaseURL: databaseURL).trackCount == 0)
+}
+
+@Test func resetCatalogEmptiesRootsAndIndexedTracksWithoutDeletingTheDatabaseFile() async throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("MediaScanner-reset-catalog-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let root = directory.appendingPathComponent("Library", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try Data("fixture".utf8).write(to: root.appendingPathComponent("Track.wav"))
+    let databaseURL = directory.appendingPathComponent("Library.sqlite")
+    _ = try await CatalogScanner(databaseURL: databaseURL).scan(rootURL: root, mode: .newScan)
+
+    let writer = try CanonicalCatalogWriter(databaseURL: databaseURL)
+    try writer.resetCatalog()
+
+    #expect(FileManager.default.fileExists(atPath: databaseURL.path))
+    #expect(try writer.roots().isEmpty)
     #expect(try CanonicalCatalog.inspect(databaseURL: databaseURL).trackCount == 0)
 }
 
@@ -154,46 +295,41 @@ import Testing
     #expect(try JSONDecoder().decode(ScannerMetadata.self, from: encoded) == metadata)
 }
 
-@Test func catalogConsoleSourcePolicyIsDeterministicForPlayStationFamilies() {
+@Test func catalogBrowserSystemComesOnlyFromTheCollectionPath() {
     let source = "/Audio/Sony PlayStation 2/Castlevania/track.psf2"
-    #expect(CatalogIdentity.browserSystem(
-        metadataSystem: "PlayStation",
-        sourcePath: source,
-        rootPath: "/Audio",
-        policy: .foldersFirst
-    ) == "Sony PlayStation 2")
-    #expect(CatalogIdentity.browserSystem(
-        metadataSystem: "PlayStation",
-        sourcePath: source,
-        rootPath: "/Audio",
-        policy: .metadataFirst
-    ) == "Sony PlayStation")
+    #expect(CatalogIdentity.browserSystem(sourcePath: source, rootPath: "/Audio") == "Sony PlayStation 2")
 }
 
-@Test func sharedPlannerSkipsOnlyACompletedMatchingIncrementalItem() throws {
-    let sourceURL = URL(fileURLWithPath: "/library/game.nsf")
-    let identity = ScanItemIdentity(rootID: 7, path: sourceURL.path, archiveEntry: nil)
-    let fingerprint = ScanFingerprint(fileSize: 42, modifiedAt: Date(timeIntervalSince1970: 100), contentSignature: "same")
-    let item = ScanInventoryItem(
-        identity: identity,
-        fingerprint: fingerprint,
-        state: .successful,
-        route: BuiltInScannerPlugins.registry.route(pathExtension: "nsf")
-    )
-    let skipped = ScanPlanner.makePlan(
-        mode: .incremental,
-        items: [item],
-        sourceURLs: [identity: sourceURL],
-        currentFingerprints: [identity: fingerprint]
-    )
-    let full = ScanPlanner.makePlan(
-        mode: .newScan,
-        items: [item],
-        sourceURLs: [identity: sourceURL],
-        currentFingerprints: [identity: fingerprint]
-    )
-    #expect(skipped.count == 0)
-    #expect(full.count == 1)
+@Test func catalogBrowserSystemUsesTheParentConsoleFolderForGameArchives() {
+    let source = "/Audio/JoshW/Nintendo DS/Castlevania.tar.zst"
+    #expect(CatalogIdentity.browserSystem(sourcePath: source, rootPath: "/Audio/JoshW") == "Nintendo DS")
+}
+
+@Test func incrementalRescanReusesAnUnchangedCompletedSource() async throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("MediaScanner-reuse-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let root = directory.appendingPathComponent("Library", isDirectory: true)
+    let game = root.appendingPathComponent("Nintendo NES", isDirectory: true)
+    try FileManager.default.createDirectory(at: game, withIntermediateDirectories: true)
+    try Data("fixture".utf8).write(to: game.appendingPathComponent("Castlevania.wav"))
+    let databaseURL = directory.appendingPathComponent("Library.sqlite")
+
+    let first = try await CatalogScanner(databaseURL: databaseURL).scan(rootURL: root, mode: .newScan)
+    #expect(first.scannedSourceCount == 1)
+    #expect(first.reusedSourceCount == 0)
+    #expect(first.failures.isEmpty)
+
+    let second = try await CatalogScanner(databaseURL: databaseURL).scan(rootURL: root, mode: .incremental)
+    #expect(second.reusedSourceCount == 1)
+    #expect(second.scannedSourceCount == 0)
+    #expect(second.trackCount == 1)
+    #expect(second.failures.isEmpty)
+
+    let full = try await CatalogScanner(databaseURL: databaseURL).scan(rootURL: root, mode: .newScan)
+    #expect(full.scannedSourceCount == 1)
+    #expect(full.reusedSourceCount == 0)
+    #expect(full.failures.isEmpty)
 }
 
 @Test func sharedDiscoveryFindsSupportedFilesAndHostRecognizedArchives() async throws {
@@ -285,7 +421,11 @@ private func createCanonicalCatalog(at url: URL) throws {
 private func querySingleRow(database: OpaquePointer, sql: String) throws -> [String] {
     var statement: OpaquePointer?
     guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
-        throw NSError(domain: "MediaScannerTests", code: 3)
+        throw NSError(
+            domain: "MediaScannerTests",
+            code: 3,
+            userInfo: [NSLocalizedDescriptionKey: String(cString: sqlite3_errmsg(database))]
+        )
     }
     defer { sqlite3_finalize(statement) }
     guard sqlite3_step(statement) == SQLITE_ROW else {
