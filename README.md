@@ -1,6 +1,6 @@
-# MediaScanner
+# ScanSong
 
-MediaScanner is the single native Swift catalog writer for CocoaSpice, SPCBoy,
+ScanSong is the native Swift catalog writer for CocoaSpice, SPCBoy,
 and future app-family frontends. The players browse a selected schema-23 SQLite
 catalog through read-only connections; they do not scan into or modify it.
 
@@ -9,7 +9,7 @@ The repository contains:
 - `MediaScannerKit`, the host-independent scanner, archive, metadata, staging,
   resume, and schema-23 publication implementation.
 - `media-scan`, a versioned JSONL command-line boundary for Electron and tests.
-- `MediaScanner`, a small native macOS GUI for managing one catalog file,
+- `ScanSong`, a small native macOS GUI for managing one catalog file,
   adding roots, scanning, cancelling, resuming, and reading per-path logs.
 
 ## Use the native app
@@ -20,10 +20,10 @@ The repository contains:
 
 `launch.sh` always removes the prior SwiftPM build and assembled app, performs a
 clean release build, ad-hoc signs the new bundle, stops any existing
-MediaScanner process, and opens that exact bundle as a new instance. Use
+ScanSong process, and opens that exact bundle as a new instance. Use
 `build-app.sh` alone when a clean build without launch is required.
 
-MediaScanner is also registered in `/Users/john/Downloads/Code/LaunchPad/apps.txt`.
+ScanSong is also registered in `/Users/john/Downloads/Code/LaunchPad/apps.txt`.
 Its LaunchPad row runs the same clean `build-app.sh` contract before opening the
 new bundle.
 
@@ -51,9 +51,9 @@ completed scan, green when all supported sources completed cleanly, yellow when
 failed or inactive sources need attention, and red when a completed scan has no
 playable files.
 
-MediaScanner publishes a root atomically. A failed refresh retains the last
+ScanSong publishes a root atomically. A failed refresh retains the last
 known-good rows for that source and reports the new failure. Player reads and
-playback may continue while MediaScanner scans: the app holds an advisory
+playback may continue while ScanSong scans: the app holds an advisory
 writer lease only to prevent a second scanner from modifying the same catalog.
 No player-state lock is shown. If SQLite reports the catalog busy after its
 wait, the scanner leaves the catalog consistent and asks you to retry. Required structural parsers fail
@@ -79,11 +79,11 @@ output is reserved for ordered, versioned JSONL events; errors and unsupported
 required adapters produce a nonzero exit status. SIGINT and SIGTERM cancel
 cooperatively after completed checkpoints have been saved.
 
-MediaScanner preserves the catalog's existing durable SQLite journal mode. New
+ScanSong preserves the catalog's existing durable SQLite journal mode. New
 catalogs start in SQLite's default rollback-journal (`DELETE`) mode; existing
 WAL catalogs stay in WAL mode so player reads and scanner writes can coexist.
 Do not copy a live WAL catalog without its `-wal` and `-shm` companion files.
-MediaScanner never switches journal mode during a scan or link-maintenance
+ScanSong never switches journal mode during a scan or link-maintenance
 operation, so an open player does not turn that operation into a catalog-busy
 error.
 
@@ -107,7 +107,7 @@ error.
   `.gsflib` dependency is present in the extracted source archive; every
   validated file becomes its real single playable row with its authored tags.
 
-MediaScanner does not yet embed every playback codec. Each intake plugin owns
+ScanSong does not yet embed every playback codec. Each intake plugin owns
 its structural and metadata boundary and returns only tracks it actually opens.
 Dependency-based vgmstream formats such as HD banks and TXTP, plus formats
 without a registered scanner plugin, remain explicit diagnostics rather than
@@ -124,5 +124,5 @@ core.
 ```bash
 swift test --disable-sandbox
 swift build --disable-sandbox --configuration release --product media-scan
-swift build --disable-sandbox --configuration release --product MediaScanner
+swift build --disable-sandbox --configuration release --product ScanSong
 ```

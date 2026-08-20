@@ -16,7 +16,7 @@ final class CatalogWriterLease: @unchecked Sendable {
 
         let descriptor = open(lockURL.path, O_RDWR | O_CREAT | O_CLOEXEC, S_IRUSR | S_IWUSR)
         guard descriptor >= 0 else {
-            throw Self.systemError("Could not open the MediaScanner writer lease.")
+            throw Self.systemError("Could not open the ScanSong writer lease.")
         }
 
         guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
@@ -25,7 +25,7 @@ final class CatalogWriterLease: @unchecked Sendable {
             if errorCode == EWOULDBLOCK || errorCode == EAGAIN {
                 throw CatalogWriterError.writerAlreadyActive(catalogURL.path)
             }
-            throw Self.systemError("Could not acquire the MediaScanner writer lease.", code: errorCode)
+            throw Self.systemError("Could not acquire the ScanSong writer lease.", code: errorCode)
         }
         fileDescriptor = descriptor
     }
@@ -54,7 +54,7 @@ public enum CatalogWriterError: Error, LocalizedError, Equatable, Sendable {
     public var errorDescription: String? {
         switch self {
         case .writerAlreadyActive:
-            "Another MediaScanner session is already writing this catalog. Wait for it to finish, then retry."
+            "Another ScanSong session is already writing this catalog. Wait for it to finish, then retry."
         case .catalogBusy:
             "The catalog is busy with another SQLite operation. Player playback may continue; retry shortly."
         }

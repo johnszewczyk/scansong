@@ -579,7 +579,7 @@ public final class CanonicalCatalogWriter: @unchecked Sendable {
             return
         }
         guard version == 0 else {
-            throw Self.error("MediaScanner does not migrate legacy catalog schema \(version). Choose a schema-23 catalog or a new database path.")
+            throw Self.error("ScanSong does not migrate legacy catalog schema \(version). Choose a schema-23 catalog or a new database path.")
         }
         let statements = [
             "CREATE TABLE library_roots (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL UNIQUE, is_enabled INTEGER NOT NULL DEFAULT 1, display_order INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL, last_scan_started_at REAL, last_scan_completed_at REAL, last_scan_track_count INTEGER NOT NULL DEFAULT 0, last_scan_error TEXT, is_attached INTEGER NOT NULL DEFAULT 1, game_sidebar_buckets_dirty INTEGER NOT NULL DEFAULT 1, file_sidebar_buckets_dirty INTEGER NOT NULL DEFAULT 1);",

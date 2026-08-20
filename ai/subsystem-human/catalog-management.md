@@ -2,7 +2,7 @@
 
 ## Scope
 
-- The MediaScanner app manages a selected schema-23 catalog and its scan paths.
+- The ScanSong app manages a selected schema-23 catalog and its scan paths.
 
 ## Catalog
 

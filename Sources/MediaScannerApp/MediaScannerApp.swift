@@ -541,7 +541,7 @@ final class ScannerAppModel: ObservableObject {
     }
 
     private func isCatalogContention(_ message: String) -> Bool {
-        message.contains("Another MediaScanner session is already writing this catalog.")
+        message.contains("Another ScanSong session is already writing this catalog.")
             || message.contains("The catalog is busy with another SQLite operation.")
     }
 
@@ -976,7 +976,7 @@ struct MediaScannerApplication: App {
     }
 
     var body: some Scene {
-        WindowGroup("MediaScanner") { ScannerWindow() }
+        WindowGroup("ScanSong") { ScannerWindow() }
             .defaultSize(width: 840, height: 700)
     }
 }

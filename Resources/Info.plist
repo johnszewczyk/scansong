@@ -5,17 +5,17 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleDisplayName</key>
-    <string>MediaScanner</string>
+    <string>ScanSong</string>
     <key>CFBundleExecutable</key>
-    <string>MediaScanner</string>
+    <string>ScanSong</string>
     <key>CFBundleIdentifier</key>
-    <string>com.local.mediascanner</string>
+    <string>com.johnszewczyk.scansong</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleIconFile</key>
     <string>app-icon.png</string>
     <key>CFBundleName</key>
-    <string>MediaScanner</string>
+    <string>ScanSong</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

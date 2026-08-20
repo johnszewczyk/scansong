@@ -3,12 +3,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "MediaScanner",
+    name: "ScanSong",
     platforms: [.macOS("26.0")],
     products: [
         .library(name: "MediaScannerKit", targets: ["MediaScannerKit"]),
         .executable(name: "media-scan", targets: ["media-scan"]),
-        .executable(name: "MediaScanner", targets: ["MediaScannerApp"])
+        .executable(name: "ScanSong", targets: ["MediaScannerApp"])
     ],
     targets: [
         .systemLibrary(

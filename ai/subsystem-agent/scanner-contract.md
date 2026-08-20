@@ -121,7 +121,7 @@
   resolve. GSF/miniGSF exposes exactly one validated track per file.
   Dependency-enumerated formats without their own plugin fail explicitly.
 - `build-app.sh` removes `.build` before every release build. `launch.sh`
-  refuses to open the new bundle while an older MediaScanner process remains.
+  refuses to open the new bundle while an older ScanSong process remains.
 
 ## Files
 
