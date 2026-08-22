@@ -16,4 +16,9 @@ if pgrep -x ScanSong >/dev/null 2>&1; then
     exit 1
 fi
 
-open -n "$APP_PATH"
+# Launch the exact freshly assembled executable. LaunchServices can retain an
+# old bundle record after the framework closure is rewritten, so do not route
+# this development launcher through `open`.
+"$APP_PATH/Contents/MacOS/ScanSong" >/tmp/scansong-launch.log 2>&1 &
+echo "Launched ScanSong"
+echo "Log: /tmp/scansong-launch.log"

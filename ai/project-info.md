@@ -10,8 +10,9 @@
   scan summaries, per-path logs, cancellation, and resume.
 - `build-app.sh` packages the native app and installs `app-icon.png` when
   supplied (falling back to the current `app-icon.jpg`) as its runtime icon.
-  It also bundles the scanner-owned vgmstream and Highly Complete inspection
-  executables; the latter is built from the local GPL-compatible mGBA bridge.
+  It obtains both required inspection executables from VGMBoy's scanner-plugin
+  build boundary; ScanSong does not reach into CocoaSpice's app or old helper
+  paths.
 
 ## Task Routing
 

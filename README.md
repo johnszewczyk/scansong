@@ -99,11 +99,11 @@ error.
   modules, and registered formats whose optional metadata can remain empty.
 - Tracker/module rows (S3M, MOD, IT, XM, MTM, STM, and related) via
   `openmpt123` inspection, one structurally-known row per module.
-- A scanner-owned vgmstream plugin that uses the bundled `vgmstream-cli`
+- A VGMBoy-built vgmstream plugin that ScanSong bundles as `vgmstream-cli`
   (pinned to the r2117 release) to open raw vgmstream formats and enumerate
   real subsongs before publishing rows.
-- A scanner-owned Highly Complete plugin that opens GSF and miniGSF through
-  the bundled inspection adapter. A miniGSF is accepted only when its required
+- A VGMBoy-built Highly Complete plugin that ScanSong bundles to open GSF and
+  miniGSF through the inspection adapter. A miniGSF is accepted only when its required
   `.gsflib` dependency is present in the extracted source archive; every
   validated file becomes its real single playable row with its authored tags.
 

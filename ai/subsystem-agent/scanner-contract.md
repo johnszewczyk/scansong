@@ -114,9 +114,12 @@
   scanner-owned vgmstream CLI plugin (bundled, pinned to the r2117 release)
   for raw vgmstream formats, the scanner-owned Highly Complete inspection
   plugin for GSF/miniGSF, and OpenMPT tracker/module intake (S3M, MOD, IT, XM,
-  MTM, STM, and related) as structurally-known single rows. `build-app.sh`
-  bundles both executable resources; a missing executable is a typed adapter
-  failure. The Highly Complete adapter creates a parser handle before reading
+  MTM, STM, and related) as structurally-known single rows. VGMBoy's
+  `scripts/build-scanner-plugins.sh` builds the vgmstream CLI and prepares the
+  shared Highly Complete dependency; `build-app.sh` then builds the VGMBoy
+  inspector product and bundles both executable resources. ScanSong never
+  invokes CocoaSpice's app or a player-owned helper. A missing executable is
+  a typed adapter failure. The Highly Complete adapter creates a parser handle before reading
   metadata, so a miniGSF is rejected unless its extracted sibling dependencies
   resolve. GSF/miniGSF exposes exactly one validated track per file.
   Dependency-enumerated formats without their own plugin fail explicitly.
