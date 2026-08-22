@@ -2,20 +2,32 @@
 
 ## Product
 
-- `ScanSong` is the independent Swift package and native scanner app; it owns the scanner contract consumed by CocoaSpice and staged by SPCBoy.
-- `MediaScannerKit` owns routing policy, recursive discovery, archive extraction, metadata inspection, schema-23 catalog creation, resumable staging, atomic publication, host-neutral results, and cancellation-aware scheduling.
-- `media-scan` exposes the engine through a versioned JSONL command-line protocol.
-- `ScanSong` is the native macOS scanner app for catalog-file selection,
-  persisted-root intake/status, link testing and explicit dead-link purging,
-  scan summaries, per-path logs, cancellation, and resume.
-- `build-app.sh` packages the native app and installs `app-icon.png` when
-  supplied (falling back to the current `app-icon.jpg`) as its runtime icon.
-  It obtains both required inspection executables from VGMBoy's scanner-plugin
-  build boundary; ScanSong does not reach into CocoaSpice's app or old helper
-  paths.
+`ScanSong` is the independent Swift package and native scanner app. `MediaScannerKit` owns
+discovery, inspection, archive handling, schema-23 catalog creation, resumable staging, and
+publication. The product is the sole catalog writer consumed by CocoaSpice and SPCBoy.
+
+## Major Components
+
+- `MediaScannerKit` — host-independent scanning and catalog engine.
+- `media-scan` — versioned JSONL command-line boundary.
+- `ScanSong` — native catalog-management interface.
+- `build-app.sh` and `launch.sh` — fresh packaging and launch boundary.
 
 ## Task Routing
 
 - Scanner ownership and protocol: [scanner-contract.md](/Users/john/Downloads/Code/MediaScanner/ai/subsystem-agent/scanner-contract.md)
+- Build and plugin packaging: [build-integration.md](/Users/john/Downloads/Code/MediaScanner/ai/subsystem-agent/build-integration.md)
 - Command-line behavior: [cli.md](/Users/john/Downloads/Code/MediaScanner/ai/subsystem-human/cli.md)
 - Native catalog management: [catalog-management.md](/Users/john/Downloads/Code/MediaScanner/ai/subsystem-human/catalog-management.md)
+
+## Local Rules
+
+- MediaScanner is the sole schema-23 catalog writer.
+- Player apps read the catalog; they do not receive scanner write access.
+- ScanSong receives inspection executables from VGMBoy and never invokes a player frontend.
+- Human notes describe implemented UI behavior; agent notes describe scanner ownership and failure boundaries.
+
+## Human Docs
+
+- `ai/subsystem-human/` contains the current catalog-management and command-line behavior notes.
+- `README.md` contains the user-facing build and scanner overview.

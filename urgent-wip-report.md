@@ -10,9 +10,8 @@
   `../VGMBoy/scripts/build-scanner-plugins.sh` and copied from
   `../VGMBoy/.build/scanner-plugins/vgmstream-cli`.
 - The Highly Complete inspection executable is a VGMBoy SwiftPM product.
-- VGMBoy still consumes shared upstream static-library inputs produced from
-  the existing CocoaSpice vendor checkout; this is a shared-source boundary,
-  not a CocoaSpice app/plugin runtime dependency.
+- VGMBoy consumes the shared upstream source garden and builds the static-library inputs;
+  CocoaSpice no longer owns a vendor checkout or plugin runtime dependency.
 
 ## Current Boundary
 

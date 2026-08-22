@@ -111,20 +111,14 @@
   validated before records are accepted.
 - Required adapters currently include libgme enumeration, SPC tags, PSF tags,
   plain VGM metadata, direct Commodore 64 SID PSID/RSID header reads, the
-  scanner-owned vgmstream CLI plugin (bundled, pinned to the r2117 release)
-  for raw vgmstream formats, the scanner-owned Highly Complete inspection
-  plugin for GSF/miniGSF, and OpenMPT tracker/module intake (S3M, MOD, IT, XM,
-  MTM, STM, and related) as structurally-known single rows. VGMBoy's
-  `scripts/build-scanner-plugins.sh` builds the vgmstream CLI and prepares the
-  shared Highly Complete dependency; `build-app.sh` then builds the VGMBoy
-  inspector product and bundles both executable resources. ScanSong never
-  invokes CocoaSpice's app or a player-owned helper. A missing executable is
-  a typed adapter failure. The Highly Complete adapter creates a parser handle before reading
+  scanner-owned vgmstream CLI plugin for raw vgmstream formats, the scanner-owned
+  Highly Complete inspection plugin for GSF/miniGSF, and OpenMPT tracker/module
+  intake (S3M, MOD, IT, XM, MTM, STM, and related) as structurally-known single
+  rows. ScanSong never invokes CocoaSpice's app or a player-owned helper. A
+  missing executable is a typed adapter failure. The Highly Complete adapter creates a parser handle before reading
   metadata, so a miniGSF is rejected unless its extracted sibling dependencies
   resolve. GSF/miniGSF exposes exactly one validated track per file.
   Dependency-enumerated formats without their own plugin fail explicitly.
-- `build-app.sh` removes `.build` before every release build. `launch.sh`
-  refuses to open the new bundle while an older ScanSong process remains.
 
 ## Files
 
@@ -134,5 +128,3 @@
 - [StandaloneArchiveExtractor.swift](/Users/john/Downloads/Code/MediaScanner/Sources/MediaScannerKit/StandaloneArchiveExtractor.swift)
 - [MediaScanCommand.swift](/Users/john/Downloads/Code/MediaScanner/Sources/media-scan/MediaScanCommand.swift)
 - [MediaScannerApp.swift](/Users/john/Downloads/Code/MediaScanner/Sources/MediaScannerApp/MediaScannerApp.swift)
-- [build-app.sh](/Users/john/Downloads/Code/MediaScanner/build-app.sh)
-- [launch.sh](/Users/john/Downloads/Code/MediaScanner/launch.sh)
