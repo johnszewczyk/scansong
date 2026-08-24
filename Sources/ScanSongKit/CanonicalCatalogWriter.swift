@@ -350,7 +350,7 @@ public final class CanonicalCatalogWriter: @unchecked Sendable {
             return stage
         }
         try discardStages(targetRootID: root.id)
-        let stagePath = "\(root.path)#mediascanner-stage-\(UUID().uuidString)"
+        let stagePath = "\(root.path)#scansong-stage-\(UUID().uuidString)"
         try execute(
             """
             INSERT INTO library_roots
@@ -937,7 +937,7 @@ public final class CanonicalCatalogWriter: @unchecked Sendable {
     }
 
     private static func error(_ message: String) -> NSError {
-        NSError(domain: "MediaScanner.CanonicalCatalogWriter", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+        NSError(domain: "ScanSong.CanonicalCatalogWriter", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
     }
 }
 

@@ -1,5 +1,5 @@
 import AppKit
-import MediaScannerKit
+import ScanSongKit
 import SwiftUI
 
 struct ScannerOptionsView: View {
@@ -105,7 +105,7 @@ struct ScannerOptionsView: View {
         func updateNSView(_ nsView: NSView, context: Context) {
             guard let window = nsView.window else { return }
             window.minSize = NSSize(width: 620, height: 420)
-            window.setFrameAutosaveName("MediaScanner.Options")
+            window.setFrameAutosaveName("ScanSong.Options")
         }
     }
 }

@@ -6,9 +6,9 @@ let package = Package(
     name: "ScanSong",
     platforms: [.macOS("26.0")],
     products: [
-        .library(name: "MediaScannerKit", targets: ["MediaScannerKit"]),
-        .executable(name: "media-scan", targets: ["media-scan"]),
-        .executable(name: "ScanSong", targets: ["MediaScannerApp"])
+        .library(name: "ScanSongKit", targets: ["ScanSongKit"]),
+        .executable(name: "scansong", targets: ["scansong"]),
+        .executable(name: "ScanSong", targets: ["ScanSongApp"])
     ],
     dependencies: [
         .package(path: "../VGMBoy")
@@ -21,7 +21,7 @@ let package = Package(
             providers: [.brew(["game-music-emu"])]
         ),
         .target(
-            name: "MediaScannerKit",
+            name: "ScanSongKit",
             dependencies: [
                 "CGameMusicEmu",
                 .product(name: "VGMBoyFormatCore", package: "VGMBoy")
@@ -31,16 +31,16 @@ let package = Package(
                 .linkedFramework("AVFoundation")
             ]
         ),
-        .executableTarget(name: "media-scan", dependencies: ["MediaScannerKit"]),
+        .executableTarget(name: "scansong", dependencies: ["ScanSongKit"]),
         .executableTarget(
-            name: "MediaScannerApp",
-            dependencies: ["MediaScannerKit"],
+            name: "ScanSongApp",
+            dependencies: ["ScanSongKit"],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("SwiftUI")
             ]
         ),
-        .testTarget(name: "MediaScannerKitTests", dependencies: ["MediaScannerKit"])
+        .testTarget(name: "ScanSongKitTests", dependencies: ["ScanSongKit"])
     ],
     swiftLanguageModes: [.v6]
 )

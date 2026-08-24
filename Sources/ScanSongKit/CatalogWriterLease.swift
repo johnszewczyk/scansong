@@ -12,7 +12,7 @@ final class CatalogWriterLease: @unchecked Sendable {
         let catalogURL = databaseURL.standardizedFileURL
         lockURL = catalogURL
             .deletingLastPathComponent()
-            .appendingPathComponent(".\(catalogURL.lastPathComponent).mediascanner-writer-lock", isDirectory: false)
+            .appendingPathComponent(".\(catalogURL.lastPathComponent).scansong-writer-lock", isDirectory: false)
 
         let descriptor = open(lockURL.path, O_RDWR | O_CREAT | O_CLOEXEC, S_IRUSR | S_IWUSR)
         guard descriptor >= 0 else {
@@ -37,7 +37,7 @@ final class CatalogWriterLease: @unchecked Sendable {
 
     private static func systemError(_ message: String, code: Int32 = errno) -> NSError {
         NSError(
-            domain: "MediaScanner.CatalogWriterLease",
+            domain: "ScanSong.CatalogWriterLease",
             code: Int(code),
             userInfo: [NSLocalizedDescriptionKey: "\(message) \(String(cString: strerror(code)))"]
         )

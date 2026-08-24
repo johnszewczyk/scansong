@@ -37,7 +37,7 @@ public struct QSFCLIInspector: ScanFormatHandler {
     }
 
     private func executableURL() throws -> URL {
-        if let configured = ProcessInfo.processInfo.environment["MEDIASCANNER_QSF_INSPECT"],
+        if let configured = ProcessInfo.processInfo.environment["SCANSONG_QSF_INSPECT"],
            !configured.isEmpty {
             let url = URL(fileURLWithPath: configured)
             guard FileManager.default.isExecutableFile(atPath: url.path) else {

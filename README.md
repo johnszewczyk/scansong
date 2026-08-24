@@ -6,9 +6,9 @@ catalog through read-only connections; they do not scan into or modify it.
 
 The repository contains:
 
-- `MediaScannerKit`, the host-independent scanner, archive, metadata, staging,
+- `ScanSongKit`, the host-independent scanner, archive, metadata, staging,
   resume, and schema-23 publication implementation.
-- `media-scan`, a versioned JSONL command-line boundary for Electron and tests.
+- `scansong`, a versioned JSONL command-line boundary for Electron and tests.
 - `ScanSong`, a small native macOS GUI for managing one catalog file,
   adding roots, scanning, cancelling, resuming, and reading per-path logs.
 
@@ -63,15 +63,15 @@ invent a single track or invoke a player-owned fallback.
 ## Command line
 
 ```bash
-swift run media-scan plugins
-swift run media-scan probe --recursive --strict /path/to/folder
-swift run media-scan catalog create /path/to/Library.sqlite
-swift run media-scan catalog validate /path/to/Library.sqlite
-swift run media-scan catalog roots /path/to/Library.sqlite
-swift run media-scan scan /path/to/Library.sqlite /path/to/root
-swift run media-scan scan --new /path/to/Library.sqlite /path/to/root
-swift run media-scan scan --permits 16 /path/to/Library.sqlite /path/to/root
-swift run media-scan scan --archive-limit 8 /path/to/Library.sqlite /path/to/root
+swift run scansong plugins
+swift run scansong probe --recursive --strict /path/to/folder
+swift run scansong catalog create /path/to/Library.sqlite
+swift run scansong catalog validate /path/to/Library.sqlite
+swift run scansong catalog roots /path/to/Library.sqlite
+swift run scansong scan /path/to/Library.sqlite /path/to/root
+swift run scansong scan --new /path/to/Library.sqlite /path/to/root
+swift run scansong scan --permits 16 /path/to/Library.sqlite /path/to/root
+swift run scansong scan --archive-limit 8 /path/to/Library.sqlite /path/to/root
 ```
 
 `probe` is always dry-run. `scan` writes only the selected catalog. Standard
@@ -129,6 +129,6 @@ core.
 
 ```bash
 swift test --disable-sandbox
-swift build --disable-sandbox --configuration release --product media-scan
+swift build --disable-sandbox --configuration release --product scansong
 swift build --disable-sandbox --configuration release --product ScanSong
 ```

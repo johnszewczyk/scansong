@@ -62,6 +62,6 @@
 
 ## Files
 
-- `Sources/MediaScannerApp/MediaScannerApp.swift`
-- `Sources/MediaScannerApp/ScannerOptionsView.swift`
-- `Sources/MediaScannerApp/ScannerScanLog.swift`
+- `Sources/ScanSongApp/ScanSongApp.swift`
+- `Sources/ScanSongApp/ScannerOptionsView.swift`
+- `Sources/ScanSongApp/ScannerScanLog.swift`

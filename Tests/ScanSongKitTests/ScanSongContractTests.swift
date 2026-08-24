@@ -1,7 +1,7 @@
 import Foundation
 import SQLite3
 import Testing
-@testable import MediaScannerKit
+@testable import ScanSongKit
 
 @Test func builtInPoliciesPreserveRequiredStructureWork() throws {
     let registry = BuiltInScannerPlugins.registry
@@ -35,12 +35,12 @@ import Testing
 @Test(
     "Core Audio inspection publishes FLAC metadata and duration",
     .enabled(
-        if: ProcessInfo.processInfo.environment["MEDIASCANNER_FLAC_FIXTURE"] != nil,
-        "Set MEDIASCANNER_FLAC_FIXTURE to run the archive-backed FLAC metadata check."
+        if: ProcessInfo.processInfo.environment["SCANSONG_FLAC_FIXTURE"] != nil,
+        "Set SCANSONG_FLAC_FIXTURE to run the archive-backed FLAC metadata check."
     )
 )
 func flacFixturePublishesStandardMetadata() async throws {
-    let path = try #require(ProcessInfo.processInfo.environment["MEDIASCANNER_FLAC_FIXTURE"])
+    let path = try #require(ProcessInfo.processInfo.environment["SCANSONG_FLAC_FIXTURE"])
     let route = try #require(BuiltInScannerPlugins.registry.route(pathExtension: "flac"))
     let handler = try #require(BuiltInFormatInspectors.registry.handler(for: route))
     let inspection = try await handler.inspect(fileURL: URL(fileURLWithPath: path), route: route)
@@ -54,12 +54,12 @@ func flacFixturePublishesStandardMetadata() async throws {
 @Test(
     "GameCube routes open through the bundled inspector with real timing",
     .enabled(
-        if: ProcessInfo.processInfo.environment["MEDIASCANNER_GAMECUBE_FIXTURES"] != nil,
-        "Set MEDIASCANNER_GAMECUBE_FIXTURES to run the archive-backed GameCube scanner checks."
+        if: ProcessInfo.processInfo.environment["SCANSONG_GAMECUBE_FIXTURES"] != nil,
+        "Set SCANSONG_GAMECUBE_FIXTURES to run the archive-backed GameCube scanner checks."
     )
 )
 func gameCubeFixturesInspectThroughVGMStream() async throws {
-    let rootPath = try #require(ProcessInfo.processInfo.environment["MEDIASCANNER_GAMECUBE_FIXTURES"])
+    let rootPath = try #require(ProcessInfo.processInfo.environment["SCANSONG_GAMECUBE_FIXTURES"])
     let root = URL(fileURLWithPath: rootPath, isDirectory: true)
     let enumerator = try #require(FileManager.default.enumerator(
         at: root,
@@ -85,7 +85,7 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
 
 @Test func txtpPreparationRetainsDependenciesWithoutPublishingDuplicateSources() throws {
     let root = FileManager.default.temporaryDirectory
-        .appendingPathComponent("MediaScanner-txtp-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("ScanSong-txtp-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: root) }
     let bank = root.appendingPathComponent("Bgm", isDirectory: true)
     try FileManager.default.createDirectory(at: bank, withIntermediateDirectories: true)
@@ -108,7 +108,7 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
 
 @Test func ignoredFileTypePolicySkipsOnlyConfiguredExtensions() async throws {
     let root = FileManager.default.temporaryDirectory
-        .appendingPathComponent("MediaScanner-ignore-policy-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("ScanSong-ignore-policy-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: root) }
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     try Data(repeating: 0, count: 4).write(to: root.appendingPathComponent("Game.sgc"))
@@ -126,7 +126,7 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
 
 @Test func sidHeaderReaderPublishesCommodore64Metadata() async throws {
     let root = FileManager.default.temporaryDirectory
-        .appendingPathComponent("MediaScanner-sid-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("ScanSong-sid-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: root) }
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
 
@@ -158,7 +158,7 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
 
 @Test func dryRunReportsTypedRoutesWithoutWritingADataStore() throws {
     let root = FileManager.default.temporaryDirectory
-        .appendingPathComponent("MediaScanner-probe-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("ScanSong-probe-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: root) }
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     try Data("SNES-SPC700 Sound File Data".utf8).write(to: root.appendingPathComponent("Track.spc"))
@@ -191,8 +191,8 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
     let event = ScannerEvent(kind: .sessionStarted, sequence: 0)
     let data = try JSONEncoder().encode(event)
     let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-    #expect(json["contract"] as? String == MediaScannerContract.name)
-    #expect(json["version"] as? Int == MediaScannerContract.version)
+    #expect(json["contract"] as? String == ScanSongContract.name)
+    #expect(json["version"] as? Int == ScanSongContract.version)
 }
 
 @Test func inspectorProcessRunnerRejectsExcessiveOutput() async throws {
@@ -220,7 +220,7 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
 
 @Test func canonicalCatalogValidationAcceptsOnlyTheSharedSchema() throws {
     let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("MediaScanner-catalog-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("ScanSong-catalog-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let databaseURL = directory.appendingPathComponent("Library.sqlite")
@@ -235,7 +235,7 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
 
 @Test func canonicalCatalogValidationRejectsAnUnrelatedSQLiteFile() throws {
     let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("MediaScanner-invalid-catalog-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("ScanSong-invalid-catalog-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let databaseURL = directory.appendingPathComponent("Other.sqlite")
@@ -251,7 +251,7 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
 
 @Test func catalogScannerCreatesAndPublishesAHostReadableSchema23Catalog() async throws {
     let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("MediaScanner-writer-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("ScanSong-writer-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let root = directory.appendingPathComponent("Library", isDirectory: true)
     let game = root
@@ -288,7 +288,7 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
 
 @Test func catalogWriterLeaseExcludesOtherScannersButAllowsPlayerReaders() throws {
     let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("MediaScanner-writer-lease-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("ScanSong-writer-lease-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let databaseURL = directory.appendingPathComponent("Library.sqlite")
@@ -307,7 +307,7 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
 
 @Test func catalogWriterPreservesWALForConcurrentPlayerReads() throws {
     let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("MediaScanner-wal-writer-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("ScanSong-wal-writer-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let databaseURL = directory.appendingPathComponent("Library.sqlite")
@@ -361,7 +361,7 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
 
 @Test func linkTestingRetainsMissingRowsAndClearDeadLinksPurgesThem() async throws {
     let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("MediaScanner-links-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("ScanSong-links-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let root = directory.appendingPathComponent("Library", isDirectory: true)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -398,7 +398,7 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
 
 @Test func resetCatalogEmptiesRootsAndIndexedTracksWithoutDeletingTheDatabaseFile() async throws {
     let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("MediaScanner-reset-catalog-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("ScanSong-reset-catalog-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let root = directory.appendingPathComponent("Library", isDirectory: true)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -442,7 +442,7 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
 
 @Test func incrementalRescanReusesAnUnchangedCompletedSource() async throws {
     let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("MediaScanner-reuse-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("ScanSong-reuse-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let root = directory.appendingPathComponent("Library", isDirectory: true)
     let game = root.appendingPathComponent("Nintendo NES", isDirectory: true)
@@ -469,7 +469,7 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
 
 @Test func sharedDiscoveryFindsSupportedFilesAndHostRecognizedArchives() async throws {
     let root = FileManager.default.temporaryDirectory
-        .appendingPathComponent("MediaScanner-discovery-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("ScanSong-discovery-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: root) }
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     try Data().write(to: root.appendingPathComponent("game.nsf"))
@@ -525,7 +525,7 @@ private enum SchedulerTestError: Error {
 private func createCanonicalCatalog(at url: URL) throws {
     var database: OpaquePointer?
     guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {
-        throw NSError(domain: "MediaScannerTests", code: 1)
+        throw NSError(domain: "ScanSongTests", code: 1)
     }
     defer { sqlite3_close(database) }
     let statements = [
@@ -545,7 +545,7 @@ private func createCanonicalCatalog(at url: URL) throws {
     for statement in statements {
         guard sqlite3_exec(database, statement, nil, nil, nil) == SQLITE_OK else {
             throw NSError(
-                domain: "MediaScannerTests",
+                domain: "ScanSongTests",
                 code: 2,
                 userInfo: [NSLocalizedDescriptionKey: String(cString: sqlite3_errmsg(database))]
             )
@@ -557,14 +557,14 @@ private func querySingleRow(database: OpaquePointer, sql: String) throws -> [Str
     var statement: OpaquePointer?
     guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
         throw NSError(
-            domain: "MediaScannerTests",
+            domain: "ScanSongTests",
             code: 3,
             userInfo: [NSLocalizedDescriptionKey: String(cString: sqlite3_errmsg(database))]
         )
     }
     defer { sqlite3_finalize(statement) }
     guard sqlite3_step(statement) == SQLITE_ROW else {
-        throw NSError(domain: "MediaScannerTests", code: 4)
+        throw NSError(domain: "ScanSongTests", code: 4)
     }
     return (0..<sqlite3_column_count(statement)).map { index in
         sqlite3_column_text(statement, index).map { String(cString: $0) } ?? ""

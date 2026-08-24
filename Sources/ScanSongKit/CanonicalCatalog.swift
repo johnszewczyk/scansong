@@ -100,7 +100,7 @@ public enum CanonicalCatalog {
 
     private static func catalogError(_ message: String) -> NSError {
         NSError(
-            domain: "MediaScanner.CanonicalCatalog",
+            domain: "ScanSong.CanonicalCatalog",
             code: 1,
             userInfo: [NSLocalizedDescriptionKey: message]
         )

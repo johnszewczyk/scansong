@@ -1,11 +1,11 @@
 # Command Line
 
-- `media-scan plugins` reports registered format routes and policies.
-- `media-scan probe [--recursive] [--strict] PATH...` examines input without
+- `scansong plugins` reports registered format routes and policies.
+- `scansong probe [--recursive] [--strict] PATH...` examines input without
   writing a catalog.
-- `media-scan catalog create|validate|roots PATH` creates, checks, or lists a
+- `scansong catalog create|validate|roots PATH` creates, checks, or lists a
   canonical catalog.
-- `media-scan scan [--new] [--permits N] [--archive-limit N] CATALOG ROOT...`
+- `scansong scan [--new] [--permits N] [--archive-limit N] CATALOG ROOT...`
   scans one or more complete roots into the selected catalog. `--permits N`
   bounds concurrent archive-member inspection (default 8) and `--archive-limit
   N` bounds how many sources extract/inspect at once (default 4); tune both on

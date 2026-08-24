@@ -1,6 +1,6 @@
 import AppKit
 import Foundation
-import MediaScannerKit
+import ScanSongKit
 
 /// Stores the last complete result for a root outside the canonical catalog.
 /// The catalog remains one self-contained SQLite file; these human-readable
@@ -100,7 +100,7 @@ enum ScannerScanLogStore {
             create: true
         )) ?? FileManager.default.temporaryDirectory
         return baseURL
-            .appendingPathComponent("MediaScanner", isDirectory: true)
+            .appendingPathComponent("ScanSong", isDirectory: true)
             .appendingPathComponent("ScanLogs", isDirectory: true)
             .appendingPathComponent(catalogIdentifier(for: databaseURL), isDirectory: true)
     }

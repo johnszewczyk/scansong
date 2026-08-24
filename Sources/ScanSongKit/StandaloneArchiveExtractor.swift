@@ -180,7 +180,7 @@ public struct StandaloneArchiveExtractor: Sendable {
 
     private func makeScratchDirectory() throws -> URL {
         let cache = fileManager.temporaryDirectory
-            .appendingPathComponent("MediaScanner-ScanScratch", isDirectory: true)
+            .appendingPathComponent("ScanSong-ScanScratch", isDirectory: true)
         try fileManager.createDirectory(at: cache, withIntermediateDirectories: true)
         reapStaleScratchDirectories(in: cache)
         let root = cache.appendingPathComponent(UUID().uuidString, isDirectory: true)

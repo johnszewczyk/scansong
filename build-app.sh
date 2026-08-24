@@ -7,7 +7,7 @@ MODULE_CACHE="$BUILD_DIR/module-cache"
 APP_DIR="$BUILD_DIR/app/ScanSong.app"
 VGMBoy_DIR="$SCRIPT_DIR/../VGMBoy"
 VGMBoy_SCANNER_PLUGIN_BUILDER="$VGMBoy_DIR/scripts/build-scanner-plugins.sh"
-HIGHLY_COMPLETE_INSPECT_SOURCE="${MEDIASCANNER_HIGHLY_COMPLETE_INSPECT:-}"
+HIGHLY_COMPLETE_INSPECT_SOURCE="${SCANSONG_HIGHLY_COMPLETE_INSPECT:-}"
 
 rm -rf "$BUILD_DIR"
 mkdir -p "$MODULE_CACHE" "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
@@ -26,10 +26,10 @@ install -m 755 "$BIN_DIR/ScanSong" "$APP_DIR/Contents/MacOS/ScanSong"
 install -m 644 "$SCRIPT_DIR/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
 [[ -x "$VGMBoy_SCANNER_PLUGIN_BUILDER" ]] || { echo "Missing VGMBoy scanner plugin builder: $VGMBoy_SCANNER_PLUGIN_BUILDER" >&2; exit 1; }
 "$VGMBoy_SCANNER_PLUGIN_BUILDER"
-VGMSTREAM_CLI_SOURCE="${MEDIASCANNER_VGMSTREAM_CLI:-$VGMBoy_DIR/.build/scanner-plugins/vgmstream-cli}"
+VGMSTREAM_CLI_SOURCE="${SCANSONG_VGMSTREAM_CLI:-$VGMBoy_DIR/.build/scanner-plugins/vgmstream-cli}"
 [[ -x "$VGMSTREAM_CLI_SOURCE" ]] || { echo "Missing ScanSong vgmstream plugin: $VGMSTREAM_CLI_SOURCE" >&2; exit 1; }
 install -m 755 "$VGMSTREAM_CLI_SOURCE" "$APP_DIR/Contents/Resources/vgmstream-cli"
-QSF_INSPECT_SOURCE="${MEDIASCANNER_QSF_INSPECT:-$VGMBoy_DIR/.build/scanner-plugins/vgmboy-qsf-inspect}"
+QSF_INSPECT_SOURCE="${SCANSONG_QSF_INSPECT:-$VGMBoy_DIR/.build/scanner-plugins/vgmboy-qsf-inspect}"
 [[ -x "$QSF_INSPECT_SOURCE" ]] || { echo "Missing ScanSong QSF plugin: $QSF_INSPECT_SOURCE" >&2; exit 1; }
 install -m 755 "$QSF_INSPECT_SOURCE" "$APP_DIR/Contents/Resources/vgmboy-qsf-inspect"
 

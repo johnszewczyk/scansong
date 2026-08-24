@@ -2,7 +2,7 @@
 
 ## Current State
 
-- ScanSong is the MediaScanner app and remains the catalog writer.
+- ScanSong is the ScanSong app and remains the catalog writer.
 - The Highly Complete inspection executable is now built from `../VGMBoy` as
   `vgmboy-highly-complete-inspect` and copied into the ScanSong bundle as
   `highly-complete-inspect`.
@@ -30,10 +30,10 @@
 
 - `build-app.sh`
 - `../VGMBoy/scripts/build-scanner-plugins.sh`
-- `Sources/MediaScannerKit/InspectorProcessRunner.swift`
-- `Sources/MediaScannerKit/VGMStreamCLIInspector.swift`
-- `Sources/MediaScannerKit/QSFCLIInspector.swift`
-- `Sources/MediaScannerKit/HighlyCompleteCLIInspector.swift`
+- `Sources/ScanSongKit/InspectorProcessRunner.swift`
+- `Sources/ScanSongKit/VGMStreamCLIInspector.swift`
+- `Sources/ScanSongKit/QSFCLIInspector.swift`
+- `Sources/ScanSongKit/HighlyCompleteCLIInspector.swift`
 - `../VGMBoy/Package.swift`
 - `../VGMBoy/build-app.sh`
 - `../VGMBoy/Sources/VGMBoyFormatCore/VGMStreamFormatManifest.swift`
@@ -65,7 +65,7 @@ not a scanner-only registration bug.
 
 Representative archives such as Chuck Rock, Clutch Hitter, and Cool Spot
 contain one `.sgc` Game Gear/SMS music container plus `.m3u` wrappers for its
-individual tracks. MediaScanner currently has no `.sgc` or `.m3u` intake route.
+individual tracks. ScanSong currently has no `.sgc` or `.m3u` intake route.
 VGMBoy's active libgme 0.6.5 path also rejects the actual `.sgc` members with
 `Wrong file type for this emulator`. Adding `sgc` to an extension set, or
 routing it through vgmstream, would therefore advertise playback that does not

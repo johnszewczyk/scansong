@@ -7,17 +7,17 @@
 
 ## Ownership
 
-- `MediaScannerKit` is the sole schema-23 catalog writer.
+- `ScanSongKit` is the sole schema-23 catalog writer.
 - `CatalogScanner` owns discovery, reuse, inspection, checkpointing, and atomic
   root publication.
 - `CanonicalCatalogSchema` owns exact schema-23 installation statements.
   `CanonicalCatalogWriter` owns every SQLite mutation and transaction boundary.
 - `CatalogLinkAuditor` owns filesystem existence checks; the writer alone
   persists `dead_sources` and rebuilds projections transactionally.
-- `media-scan` owns ordered JSONL serialization, exit status, and process-signal
+- `scansong` owns ordered JSONL serialization, exit status, and process-signal
   cancellation.
-- `MediaScannerApp` owns the native catalog-management window and its
-  per-path last-result logs. It may use SwiftUI; `MediaScannerKit` may not.
+- `ScanSongApp` owns the native catalog-management window and its
+  per-path last-result logs. It may use SwiftUI; `ScanSongKit` may not.
 - `CanonicalCatalogReader` owns query-only catalog presentation. The scanner
   app uses it to load attached paths and their statistics while player apps
   have the catalog open.
@@ -30,17 +30,17 @@
 - Catalog presentation must not open `CanonicalCatalogWriter` merely to load
   paths or statistics. Reader connections do not participate in the scanner's
   writer lease.
-- New catalogs and exact schema 23 are accepted. MediaScanner does not migrate
+- New catalogs and exact schema 23 are accepted. ScanSong does not migrate
   an unrelated or older application database.
 - The writer preserves the catalog's durable SQLite journal mode (`DELETE` or
   `WAL`) and never changes it as part of scanning or link maintenance. New
   catalogs begin in SQLite's default `DELETE` mode; a WAL catalog includes its
   `-wal` and `-shm` files while connections remain open.
 - `CanonicalCatalogWriter` holds an OS advisory lease beside the selected
-  catalog for its lifetime. The lease excludes a second MediaScanner writer;
+  catalog for its lifetime. The lease excludes a second ScanSong writer;
   it never blocks CocoaSpice or SPCBoy query-only reads.
 - A player being open is not a locked state. The writer lease excludes only a
-  second MediaScanner writer; CocoaSpice and SPCBoy may keep read-only SQLite
+  second ScanSong writer; CocoaSpice and SPCBoy may keep read-only SQLite
   connections open. SQLite `BUSY`/`LOCKED` remains a retryable condition, not
   catalog corruption.
 - One hidden staging root represents an unpublished scan. Publication replaces
@@ -70,7 +70,7 @@
   independently and never replaces that projection during scanning.
 - The folder projection recognizes the collection's console directory, such as
   `set/Nintendo DS/game.tar.zst`. Players may choose that value or embedded
-  metadata when grouping; MediaScanner never rewrites rows for the preference.
+  metadata when grouping; ScanSong never rewrites rows for the preference.
 - Structure policy is independent from optional metadata policy. Required child
   or dependency enumeration cannot be deferred.
 - A scanner plugin has a `ScannerPluginDescriptor` for routing and a
@@ -132,7 +132,7 @@
   throughput can be monitored when tuning `--permits` or `--archive-limit`.
 - SQLite write contention waits through the configured busy timeout. A timeout
   or conflicting writer leaves completed transactions atomic and the catalog
-  readable; MediaScanner reports the condition and re-enables retry actions.
+  readable; ScanSong reports the condition and re-enables retry actions.
 - Child archive processes are terminated when their task is cancelled.
 - Archive paths, symlinks, member count/name size, and expanded bytes are
   validated before records are accepted.
@@ -166,14 +166,14 @@
 
 ## Files
 
-- [CatalogScanner.swift](/Users/john/Downloads/Code/VGMMan/MediaScanner/Sources/MediaScannerKit/CatalogScanner.swift)
-- [CanonicalCatalogWriter.swift](/Users/john/Downloads/Code/VGMMan/MediaScanner/Sources/MediaScannerKit/CanonicalCatalogWriter.swift)
-- [CanonicalCatalogSchema.swift](/Users/john/Downloads/Code/VGMMan/MediaScanner/Sources/MediaScannerKit/CanonicalCatalogSchema.swift)
-- [CatalogLinkAuditor.swift](/Users/john/Downloads/Code/VGMMan/MediaScanner/Sources/MediaScannerKit/CatalogLinkAuditor.swift)
-- [ScannerInspectors.swift](/Users/john/Downloads/Code/VGMMan/MediaScanner/Sources/MediaScannerKit/ScannerInspectors.swift)
-- [InspectorProcessRunner.swift](/Users/john/Downloads/Code/VGMMan/MediaScanner/Sources/MediaScannerKit/InspectorProcessRunner.swift)
-- [TXTPDependencyResolver.swift](/Users/john/Downloads/Code/VGMMan/MediaScanner/Sources/MediaScannerKit/TXTPDependencyResolver.swift)
-- [ArchiveMemberEnumerator.swift](/Users/john/Downloads/Code/VGMMan/MediaScanner/Sources/MediaScannerKit/ArchiveMemberEnumerator.swift)
-- [StandaloneArchiveExtractor.swift](/Users/john/Downloads/Code/VGMMan/MediaScanner/Sources/MediaScannerKit/StandaloneArchiveExtractor.swift)
-- [MediaScanCommand.swift](/Users/john/Downloads/Code/VGMMan/MediaScanner/Sources/media-scan/MediaScanCommand.swift)
-- [MediaScannerApp.swift](/Users/john/Downloads/Code/VGMMan/MediaScanner/Sources/MediaScannerApp/MediaScannerApp.swift)
+- [CatalogScanner.swift](/Users/john/Downloads/Code/VGMMan/ScanSong/Sources/ScanSongKit/CatalogScanner.swift)
+- [CanonicalCatalogWriter.swift](/Users/john/Downloads/Code/VGMMan/ScanSong/Sources/ScanSongKit/CanonicalCatalogWriter.swift)
+- [CanonicalCatalogSchema.swift](/Users/john/Downloads/Code/VGMMan/ScanSong/Sources/ScanSongKit/CanonicalCatalogSchema.swift)
+- [CatalogLinkAuditor.swift](/Users/john/Downloads/Code/VGMMan/ScanSong/Sources/ScanSongKit/CatalogLinkAuditor.swift)
+- [ScannerInspectors.swift](/Users/john/Downloads/Code/VGMMan/ScanSong/Sources/ScanSongKit/ScannerInspectors.swift)
+- [InspectorProcessRunner.swift](/Users/john/Downloads/Code/VGMMan/ScanSong/Sources/ScanSongKit/InspectorProcessRunner.swift)
+- [TXTPDependencyResolver.swift](/Users/john/Downloads/Code/VGMMan/ScanSong/Sources/ScanSongKit/TXTPDependencyResolver.swift)
+- [ArchiveMemberEnumerator.swift](/Users/john/Downloads/Code/VGMMan/ScanSong/Sources/ScanSongKit/ArchiveMemberEnumerator.swift)
+- [StandaloneArchiveExtractor.swift](/Users/john/Downloads/Code/VGMMan/ScanSong/Sources/ScanSongKit/StandaloneArchiveExtractor.swift)
+- [ScanSongCommand.swift](/Users/john/Downloads/Code/VGMMan/ScanSong/Sources/scansong/ScanSongCommand.swift)
+- [ScanSongApp.swift](/Users/john/Downloads/Code/VGMMan/ScanSong/Sources/ScanSongApp/ScanSongApp.swift)

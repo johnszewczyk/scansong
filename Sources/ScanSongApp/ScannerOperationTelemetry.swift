@@ -1,5 +1,5 @@
 import Foundation
-import MediaScannerKit
+import ScanSongKit
 
 /// Keeps operation callbacks off the main actor until the UI is ready to
 /// sample one. Scanner and link-maintenance workers can report much faster

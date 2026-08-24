@@ -8,11 +8,11 @@ executables.
 ## Ownership
 
 - VGMBoy owns decoder source, compatibility patches, dependency archives, and scanner-plugin builds.
-- MediaScanner depends only on VGMBoy's lightweight `VGMBoyFormatCore` product
+- ScanSong depends only on VGMBoy's lightweight `VGMBoyFormatCore` product
   for typed format admission; it does not link VGMBoyKit or native decoders.
-- `MediaScanner/build-app.sh` asks VGMBoy to build the vgmstream CLI and Highly Complete inspector,
+- `ScanSong/build-app.sh` asks VGMBoy to build the vgmstream CLI and Highly Complete inspector,
   then copies those products into the ScanSong bundle.
-- `MediaScanner/launch.sh` packages a fresh app and refuses to open it while an older ScanSong
+- `ScanSong/launch.sh` packages a fresh app and refuses to open it while an older ScanSong
   process remains.
 
 ## Invariants
@@ -33,7 +33,7 @@ executables.
 
 ## Files
 
-- [build-app.sh](/Users/john/Downloads/Code/VGMMan/MediaScanner/build-app.sh)
-- [launch.sh](/Users/john/Downloads/Code/VGMMan/MediaScanner/launch.sh)
-- [ScannerInspectors.swift](/Users/john/Downloads/Code/VGMMan/MediaScanner/Sources/MediaScannerKit/ScannerInspectors.swift)
+- [build-app.sh](/Users/john/Downloads/Code/VGMMan/ScanSong/build-app.sh)
+- [launch.sh](/Users/john/Downloads/Code/VGMMan/ScanSong/launch.sh)
+- [ScannerInspectors.swift](/Users/john/Downloads/Code/VGMMan/ScanSong/Sources/ScanSongKit/ScannerInspectors.swift)
 - [VGMBoy build integration](/Users/john/Downloads/Code/VGMMan/VGMBoy/ai/subsystem-agent/build-integration.md)

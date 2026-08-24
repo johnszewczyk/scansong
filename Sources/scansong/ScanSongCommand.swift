@@ -1,7 +1,7 @@
 import Darwin
 import Dispatch
 import Foundation
-import MediaScannerKit
+import ScanSongKit
 
 private enum Exit: Error { case code(Int32) }
 
@@ -26,7 +26,7 @@ private func writeFatal(_ message: String) throws {
 }
 
 private func usage() -> String {
-    "Usage: media-scan plugins | probe [--recursive] [--strict] PATH... | catalog create|validate|roots PATH | scan [--new] CATALOG ROOT..."
+    "Usage: scansong plugins | probe [--recursive] [--strict] PATH... | catalog create|validate|roots PATH | scan [--new] CATALOG ROOT..."
 }
 
 private final class SequencedEventWriter: @unchecked Sendable {
@@ -72,7 +72,7 @@ private final class ScanProgressReporter: @unchecked Sendable {
 }
 
 @main
-private struct MediaScanCommand {
+private struct ScanSongCommand {
     static func main() async {
         do {
             try await run()

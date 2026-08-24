@@ -44,7 +44,7 @@ struct CatalogLinkAuditor {
                     missing.append(source)
                 } else {
                     throw NSError(
-                        domain: "MediaScanner.CatalogLinkAuditor",
+                        domain: "ScanSong.CatalogLinkAuditor",
                         code: 1,
                         userInfo: [
                             NSLocalizedDescriptionKey:

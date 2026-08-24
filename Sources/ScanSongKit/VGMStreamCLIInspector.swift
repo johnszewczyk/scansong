@@ -33,7 +33,7 @@ public struct VGMStreamCLIInspector: ScanFormatHandler {
     }
 
     private static func executableURL() throws -> URL {
-        if let configured = ProcessInfo.processInfo.environment["MEDIASCANNER_VGMSTREAM_CLI"],
+        if let configured = ProcessInfo.processInfo.environment["SCANSONG_VGMSTREAM_CLI"],
            !configured.isEmpty {
             let url = URL(fileURLWithPath: configured)
             guard FileManager.default.isExecutableFile(atPath: url.path) else {

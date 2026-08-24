@@ -124,7 +124,7 @@ public final class CanonicalCatalogReader: @unchecked Sendable {
 
     private static func error(_ message: String) -> NSError {
         NSError(
-            domain: "MediaScanner.CanonicalCatalogReader",
+            domain: "ScanSong.CanonicalCatalogReader",
             code: 1,
             userInfo: [NSLocalizedDescriptionKey: message]
         )

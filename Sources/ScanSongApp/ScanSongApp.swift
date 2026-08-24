@@ -1,6 +1,6 @@
 import AppKit
 import Foundation
-import MediaScannerKit
+import ScanSongKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -18,8 +18,8 @@ private enum MaintenanceOutcome: Sendable {
 
 @MainActor
 final class ScannerAppModel: ObservableObject {
-    private static let catalogPathKey = "MediaScanner.catalogPath"
-    private static let ignoredFileTypesKey = "MediaScanner.ignoredFileTypes"
+    private static let catalogPathKey = "ScanSong.catalogPath"
+    private static let ignoredFileTypesKey = "ScanSong.ignoredFileTypes"
     private static let cocoaSpiceDefaultsSuite = "com.local.cocoaspice"
     private static let cocoaSpiceCatalogPathKey = "CocoaSpice.libraryDatabasePath"
 
@@ -703,7 +703,7 @@ struct ScannerWindow: View {
         .background(windowBackground)
         .frame(minWidth: 760, idealWidth: 840, minHeight: 560, idealHeight: 700)
         .background(WindowCloseGuard(model: model))
-        .onAppear { MediaScannerApplicationDelegate.shared?.scannerModel = model }
+        .onAppear { ScanSongApplicationDelegate.shared?.scannerModel = model }
         .confirmationDialog(
             "Reset all scan paths?",
             isPresented: $model.showsResetPathsConfirmation,
@@ -1083,8 +1083,8 @@ struct ScannerWindow: View {
 }
 
 @MainActor
-private final class MediaScannerApplicationDelegate: NSObject, NSApplicationDelegate {
-    static weak var shared: MediaScannerApplicationDelegate?
+private final class ScanSongApplicationDelegate: NSObject, NSApplicationDelegate {
+    static weak var shared: ScanSongApplicationDelegate?
     weak var scannerModel: ScannerAppModel?
 
     override init() {
@@ -1166,8 +1166,8 @@ private struct WindowCloseGuard: NSViewRepresentable {
 }
 
 @main
-struct MediaScannerApplication: App {
-    @NSApplicationDelegateAdaptor(MediaScannerApplicationDelegate.self) private var applicationDelegate
+struct ScanSongApplication: App {
+    @NSApplicationDelegateAdaptor(ScanSongApplicationDelegate.self) private var applicationDelegate
     @StateObject private var model = ScannerAppModel()
 
     init() {

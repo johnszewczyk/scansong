@@ -1,7 +1,7 @@
 import Foundation
 
-public enum MediaScannerContract {
-    public static let name = "media-scanner-jsonl"
+public enum ScanSongContract {
+    public static let name = "scansong-jsonl"
     public static let version = 1
 }
 
@@ -241,8 +241,8 @@ public struct ScannerEvent: Codable, Sendable {
         catalog: CanonicalCatalogSummary? = nil,
         telemetry: ScanPhaseTelemetry? = nil
     ) {
-        self.contract = MediaScannerContract.name
-        self.version = MediaScannerContract.version
+        self.contract = ScanSongContract.name
+        self.version = ScanSongContract.version
         self.kind = kind
         self.sequence = sequence
         self.path = path
