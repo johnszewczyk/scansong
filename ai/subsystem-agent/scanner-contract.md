@@ -10,7 +10,10 @@
 - `MediaScannerKit` is the sole schema-23 catalog writer.
 - `CatalogScanner` owns discovery, reuse, inspection, checkpointing, and atomic
   root publication.
-- `CanonicalCatalogWriter` owns schema creation and every SQLite mutation.
+- `CanonicalCatalogSchema` owns exact schema-23 installation statements.
+  `CanonicalCatalogWriter` owns every SQLite mutation and transaction boundary.
+- `CatalogLinkAuditor` owns filesystem existence checks; the writer alone
+  persists `dead_sources` and rebuilds projections transactionally.
 - `media-scan` owns ordered JSONL serialization, exit status, and process-signal
   cancellation.
 - `MediaScannerApp` owns the native catalog-management window and its
@@ -76,10 +79,29 @@
   they never write the catalog directly.
 - Unknown inputs and unavailable required adapters are typed diagnostics, never
   invented playable rows or calls into a host scanner.
+- The persisted ScanSong file-type policy ignores only documented decoder-absent
+  extensions (`.sgc`, NCSF family, Doom `.mus`, and playlist `.m3u` by default).
+  The policy is visible and editable under Options > File Types and is passed to
+  both loose-file discovery and archive-member routing.
+- Discovery does not retain or emit a record for every unrelated file without a
+  scanner route. Only files matching an explicitly ignored policy are retained
+  in the optional post-operation skip inventory; unsupported routed files and
+  corrupt files remain distinct failure cases.
+- Ignoring an extension is not a corruption filter. Supported routed members are
+  always inspected; malformed members produce retained `ScanFailure` rows and
+  scan-log entries. An archive may publish valid sibling tracks while preserving
+  the failed member for retry and diagnosis.
 - TAR.ZST is fully decompressed to a bounded temporary TAR before listing and
   extraction; the scanner never closes a producer pipe early.
 - Standard output contains JSONL events only, with explicit contract name,
-  version, and monotonically increasing sequence.
+  version, and monotonically increasing sequence. Progress diagnostics are
+  rate-limited to phase changes, phase completion, or one event per second so
+  output cannot bottleneck scanning.
+- ScanSong operation progress uses one bounded presentation channel for Scan,
+  Check Links, and Remove Links: the native app retains only the latest update
+  and samples it every 250 ms on the main actor. Do not enqueue one GUI task or
+  render one current file for every callback; progress presentation must not
+  pace any worker operation.
 
 ## Concurrency and Failure Boundaries
 
@@ -92,6 +114,11 @@
   catalog checkpoints commit serially in the coordinator so the SQLite writer
   is never touched concurrently. Completed per-source checkpoints persist on
   cancellation, preserving resume; record order stays deterministic.
+- Archive extraction itself is serialized to one payload at a time. The
+  per-archive expanded-byte limit therefore cannot multiply across the source
+  pipeline. TAR.ZST archives are listed and extracted directly by `tar` without
+  first creating a second full `expanded.tar`; stale scanner scratch roots older
+  than one day are reaped when a new extraction begins.
 - Archive member inspection runs under the shared bounded permit pool
   (`ScanResourceScheduler`) so subprocess adapters (vgmstream, Highly Complete)
   run concurrently while records keep deterministic member order. Loose
@@ -111,7 +138,11 @@
   validated before records are accepted.
 - Required adapters currently include libgme enumeration, SPC tags, PSF tags,
   plain VGM metadata, direct Commodore 64 SID PSID/RSID header reads, the
-  scanner-owned vgmstream CLI plugin for raw vgmstream formats, the scanner-owned
+  Core Audio standard-audio inspector for FLAC/Vorbis comments and exact
+  decoded duration (with AVFoundation metadata fallback for other ordinary
+  audio),
+  scanner-owned vgmstream CLI plugin for raw vgmstream formats, TXTP structures,
+  and HD-bank structures, the scanner-owned
   Highly Complete inspection plugin for GSF/miniGSF, and OpenMPT tracker/module
   intake (S3M, MOD, IT, XM, MTM, STM, and related) as structurally-known single
   rows. ScanSong never invokes CocoaSpice's app or a player-owned helper. A
@@ -119,12 +150,30 @@
   metadata, so a miniGSF is rejected unless its extracted sibling dependencies
   resolve. GSF/miniGSF exposes exactly one validated track per file.
   Dependency-enumerated formats without their own plugin fail explicitly.
+- GameCube intake is fixture-backed: primary DSP, ADP, AGSC, H4M, LDAT,
+  LOGG, RSF, THP, and TXTP members route through the bundled vgmstream
+  inspector. Extracted TXTH and bank/data files remain dependencies and never
+  become duplicate catalog rows.
+- When a TXTP references an otherwise playable stream, the extracted stream is
+  retained for decoder access but suppressed as a separate catalog member;
+  the TXTP-authored mixing, subsong, and loop structure is authoritative.
+- vgmstream extensions and admission roles come from VGMBoy's database-free
+  `VGMBoyFormatCore`; ScanSong retains native inspection, archive handling, and
+  schema-23 publication ownership.
+- Native CLI inspectors share one bounded process runner with a 30-second
+  deadline, 4 MiB stdout, 256 KiB stderr, concurrent draining, and cancellation
+  termination. Decoder-family adapters remain separate files.
 
 ## Files
 
-- [CatalogScanner.swift](/Users/john/Downloads/Code/MediaScanner/Sources/MediaScannerKit/CatalogScanner.swift)
-- [CanonicalCatalogWriter.swift](/Users/john/Downloads/Code/MediaScanner/Sources/MediaScannerKit/CanonicalCatalogWriter.swift)
-- [ScannerInspectors.swift](/Users/john/Downloads/Code/MediaScanner/Sources/MediaScannerKit/ScannerInspectors.swift)
-- [StandaloneArchiveExtractor.swift](/Users/john/Downloads/Code/MediaScanner/Sources/MediaScannerKit/StandaloneArchiveExtractor.swift)
-- [MediaScanCommand.swift](/Users/john/Downloads/Code/MediaScanner/Sources/media-scan/MediaScanCommand.swift)
-- [MediaScannerApp.swift](/Users/john/Downloads/Code/MediaScanner/Sources/MediaScannerApp/MediaScannerApp.swift)
+- [CatalogScanner.swift](/Users/john/Downloads/Code/VGMMan/MediaScanner/Sources/MediaScannerKit/CatalogScanner.swift)
+- [CanonicalCatalogWriter.swift](/Users/john/Downloads/Code/VGMMan/MediaScanner/Sources/MediaScannerKit/CanonicalCatalogWriter.swift)
+- [CanonicalCatalogSchema.swift](/Users/john/Downloads/Code/VGMMan/MediaScanner/Sources/MediaScannerKit/CanonicalCatalogSchema.swift)
+- [CatalogLinkAuditor.swift](/Users/john/Downloads/Code/VGMMan/MediaScanner/Sources/MediaScannerKit/CatalogLinkAuditor.swift)
+- [ScannerInspectors.swift](/Users/john/Downloads/Code/VGMMan/MediaScanner/Sources/MediaScannerKit/ScannerInspectors.swift)
+- [InspectorProcessRunner.swift](/Users/john/Downloads/Code/VGMMan/MediaScanner/Sources/MediaScannerKit/InspectorProcessRunner.swift)
+- [TXTPDependencyResolver.swift](/Users/john/Downloads/Code/VGMMan/MediaScanner/Sources/MediaScannerKit/TXTPDependencyResolver.swift)
+- [ArchiveMemberEnumerator.swift](/Users/john/Downloads/Code/VGMMan/MediaScanner/Sources/MediaScannerKit/ArchiveMemberEnumerator.swift)
+- [StandaloneArchiveExtractor.swift](/Users/john/Downloads/Code/VGMMan/MediaScanner/Sources/MediaScannerKit/StandaloneArchiveExtractor.swift)
+- [MediaScanCommand.swift](/Users/john/Downloads/Code/VGMMan/MediaScanner/Sources/media-scan/MediaScanCommand.swift)
+- [MediaScannerApp.swift](/Users/john/Downloads/Code/VGMMan/MediaScanner/Sources/MediaScannerApp/MediaScannerApp.swift)

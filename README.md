@@ -100,18 +100,24 @@ error.
 - Tracker/module rows (S3M, MOD, IT, XM, MTM, STM, and related) via
   `openmpt123` inspection, one structurally-known row per module.
 - A VGMBoy-built vgmstream plugin that ScanSong bundles as `vgmstream-cli`
-  (pinned to the r2117 release) to open raw vgmstream formats and enumerate
-  real subsongs before publishing rows.
+  from the VGMBoy-managed source snapshot and compatibility patch to open raw vgmstream formats and enumerate
+  real subsongs before publishing rows. TXTP and HD-bank structures are
+  materialized and inspected through the same route.
 - A VGMBoy-built Highly Complete plugin that ScanSong bundles to open GSF and
   miniGSF through the inspection adapter. A miniGSF is accepted only when its required
   `.gsflib` dependency is present in the extracted source archive; every
   validated file becomes its real single playable row with its authored tags.
+- A VGMBoy-built QSF plugin that opens QSF and miniQSF through the Audio Overload
+  QSound engine. A miniQSF is accepted only when its required `.qsflib`
+  dependency is present in the extracted source archive; every validated file
+  becomes its real single playable row.
 
 ScanSong does not yet embed every playback codec. Each intake plugin owns
 its structural and metadata boundary and returns only tracks it actually opens.
-Dependency-based vgmstream formats such as HD banks and TXTP, plus formats
-without a registered scanner plugin, remain explicit diagnostics rather than
-incomplete or invented catalog rows. Playback remains player-owned.
+Formats without an implementable scanner adapter are documented in
+`ai/project-info.md` and are visible under Options > File Types. They are
+ignored by default; supported formats are still inspected so corruption remains
+an explicit archive-member failure rather than a hidden source.
 
 Formats without a scanner adapter (for example SNSF and the WonderSwan/Game
 Gear oddball families) are not indexed; those sources report

@@ -59,6 +59,37 @@ public struct ScanCandidate: Hashable, Sendable {
     }
 }
 
+public enum ScanSkipReason: String, Codable, Sendable {
+    case explicitlyIgnored = "explicitIgnore"
+    case unsupportedFormat = "unsupportedFormat"
+}
+
+public struct ScanSkippedFile: Sendable, Equatable {
+    public let identity: ScanItemIdentity
+    public let extensionName: String
+    public let reason: ScanSkipReason
+
+    public init(identity: ScanItemIdentity, extensionName: String, reason: ScanSkipReason) {
+        self.identity = identity
+        self.extensionName = extensionName
+        self.reason = reason
+    }
+
+    public var identityDescription: String {
+        identity.archiveEntry.map { "\(identity.path)#\($0)" } ?? identity.path
+    }
+}
+
+public struct ScanDiscoveryReport: Sendable {
+    public let candidates: [ScanCandidate]
+    public let skipped: [ScanSkippedFile]
+
+    public init(candidates: [ScanCandidate], skipped: [ScanSkippedFile]) {
+        self.candidates = candidates
+        self.skipped = skipped
+    }
+}
+
 public struct ScanArchiveMember: Hashable, Sendable {
     public let archiveURL: URL
     public let entryPath: String
@@ -441,21 +472,41 @@ public enum ScanFilesystemDiscovery {
         rootID: Int64,
         rootURL: URL,
         registry: ScannerPluginRegistry,
-        isArchive: @escaping @Sendable (URL) -> Bool
+        isArchive: @escaping @Sendable (URL) -> Bool,
+        ignoredFileExtensions: Set<String> = []
     ) async throws -> [ScanCandidate] {
+        try await discoverReport(
+            rootID: rootID,
+            rootURL: rootURL,
+            registry: registry,
+            isArchive: isArchive,
+            ignoredFileExtensions: ignoredFileExtensions
+        ).candidates
+    }
+
+    public static func discoverReport(
+        rootID: Int64,
+        rootURL: URL,
+        registry: ScannerPluginRegistry,
+        isArchive: @escaping @Sendable (URL) -> Bool,
+        ignoredFileExtensions: Set<String> = []
+    ) async throws -> ScanDiscoveryReport {
         let task = Task.detached(priority: .utility) {
             var candidates: [ScanCandidate] = []
+            var skipped: [ScanSkippedFile] = []
             try walk(
                 rootID: rootID,
                 folderURL: rootURL.standardizedFileURL,
                 registry: registry,
                 isArchive: isArchive,
-                candidates: &candidates
+                ignoredFileExtensions: ignoredFileExtensions,
+                candidates: &candidates,
+                skipped: &skipped
             )
             try Task.checkCancellation()
-            return candidates.sorted {
-                $0.identity.path.localizedStandardCompare($1.identity.path) == .orderedAscending
-            }
+            candidates.sort { $0.identity.path.localizedStandardCompare($1.identity.path) == .orderedAscending }
+            skipped.sort { $0.identityDescription.localizedStandardCompare($1.identityDescription) == .orderedAscending }
+            return ScanDiscoveryReport(candidates: candidates, skipped: skipped)
         }
         return try await withTaskCancellationHandler {
             try await task.value
@@ -469,7 +520,9 @@ public enum ScanFilesystemDiscovery {
         folderURL: URL,
         registry: ScannerPluginRegistry,
         isArchive: @Sendable (URL) -> Bool,
-        candidates: inout [ScanCandidate]
+        ignoredFileExtensions: Set<String>,
+        candidates: inout [ScanCandidate],
+        skipped: inout [ScanSkippedFile]
     ) throws {
         let keys: Set<URLResourceKey> = [
             .isRegularFileKey,
@@ -486,10 +539,16 @@ public enum ScanFilesystemDiscovery {
             try Task.checkCancellation()
             let values = try? child.resourceValues(forKeys: keys)
             guard values?.isRegularFile == true else { continue }
+            let extensionName = ScannerFormatPolicy.normalize(child.pathExtension)
+            let identity = ScanItemIdentity(rootID: rootID, path: child.path, archiveEntry: nil)
+            if ignoredFileExtensions.contains(extensionName) {
+                skipped.append(ScanSkippedFile(identity: identity, extensionName: extensionName, reason: .explicitlyIgnored))
+                continue
+            }
             let route = registry.route(for: child.pathExtension)
             guard isArchive(child) || route != nil else { continue }
             candidates.append(ScanCandidate(
-                identity: ScanItemIdentity(rootID: rootID, path: child.path, archiveEntry: nil),
+                identity: identity,
                 fingerprint: ScanFingerprint(
                     fileSize: Int64(values?.fileSize ?? 0),
                     modifiedAt: values?.contentModificationDate ?? .distantPast

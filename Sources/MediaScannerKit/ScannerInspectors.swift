@@ -40,7 +40,10 @@ public struct BuiltInFormatInspector: ScanFormatHandler {
             // libVGM's playlist-facing enumeration also produces one track.
             let metadata = try VGMTagReader.read(fileURL: fileURL)
             return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)])
-        case "openmpt", "standard-audio", "ffmpeg-audio":
+        case "standard-audio":
+            let metadata = try StandardAudioInspector.inspect(fileURL: fileURL)
+            return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)])
+        case "openmpt", "ffmpeg-audio":
             return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: nil)])
         case "sid":
             let metadata = try SIDMetadataReader.read(fileURL: fileURL)
@@ -60,219 +63,20 @@ public struct BuiltInFormatInspector: ScanFormatHandler {
 public enum BuiltInFormatInspectors {
     public static let registry = ScanPluginHandlerRegistry(
             handlers: BuiltInScannerPlugins.registry.descriptors.map { descriptor -> any ScanFormatHandler in
-                if descriptor.pluginID == "vgmstream" {
+                if descriptor.pluginID == "vgmstream"
+                    || descriptor.pluginID == "vgmstream-txtp"
+                    || descriptor.pluginID == "vgmstream-hd-bank" {
                     return VGMStreamCLIInspector(descriptor: descriptor)
                 }
                 if descriptor.pluginID == "highly-complete" {
                     return HighlyCompleteCLIInspector(descriptor: descriptor)
                 }
+                if descriptor.pluginID == "qsf" || descriptor.pluginID == "qsf-mini" {
+                    return QSFCLIInspector(descriptor: descriptor)
+                }
                 return BuiltInFormatInspector(descriptor: descriptor)
             }
     )
-}
-
-/// Scanner-owned vgmstream structure plugin. It invokes the CLI bundled in
-/// the MediaScanner app, never a player process, and emits one typed record
-/// for every reported subsong.
-public struct VGMStreamCLIInspector: ScanFormatHandler {
-    public let descriptor: ScannerPluginDescriptor
-
-    public init(descriptor: ScannerPluginDescriptor) {
-        self.descriptor = descriptor
-    }
-
-    public func inspect(fileURL: URL, route: ScannerRoute) async throws -> ScanInspection {
-        let executable = try Self.executableURL()
-        let first = try await Self.readInfo(executable: executable, fileURL: fileURL, subsong: nil)
-        let trackCount = max(1, first.streamInfo?.total ?? 0)
-        guard trackCount <= 1_000 else {
-            throw ScannerInspectionError.malformedFile(
-                "vgmstream reported an unsafe subsong count (\(trackCount)) for \(fileURL.lastPathComponent)."
-            )
-        }
-        var tracks: [ScanTrackMetadata] = []
-        for index in 0..<trackCount {
-            let info = index == 0 ? first : try await Self.readInfo(executable: executable, fileURL: fileURL, subsong: index + 1)
-            tracks.append(ScanTrackMetadata(
-                trackIndex: index,
-                trackCount: trackCount,
-                metadata: info.metadata(fileURL: fileURL)
-            ))
-        }
-        return ScanInspection(route: route, tracks: tracks)
-    }
-
-    private static func executableURL() throws -> URL {
-        if let configured = ProcessInfo.processInfo.environment["MEDIASCANNER_VGMSTREAM_CLI"],
-           !configured.isEmpty {
-            let url = URL(fileURLWithPath: configured)
-            guard FileManager.default.isExecutableFile(atPath: url.path) else {
-                throw ScannerInspectionError.library("Configured vgmstream plugin is not executable: \(url.path)")
-            }
-            return url
-        }
-        if let bundled = Bundle.main.url(forResource: "vgmstream-cli", withExtension: nil),
-           FileManager.default.isExecutableFile(atPath: bundled.path) {
-            return bundled
-        }
-        throw ScannerInspectionError.missingRequiredAdapter(pluginID: "vgmstream", extensionName: "plugin")
-    }
-
-    private static func readInfo(executable: URL, fileURL: URL, subsong: Int?) async throws -> VGMStreamInfo {
-        var arguments = ["-I"]
-        if let subsong { arguments += ["-s", String(subsong)] }
-        arguments.append(fileURL.path)
-        let data = try await VGMStreamCommand.run(executable: executable, arguments: arguments)
-        do {
-            return try JSONDecoder().decode(VGMStreamInfo.self, from: data)
-        } catch {
-            throw ScannerInspectionError.library("vgmstream returned invalid metadata for \(fileURL.lastPathComponent): \(error.localizedDescription)")
-        }
-    }
-}
-
-/// Scanner-owned Highly Complete structure plugin. The bundled inspector opens
-/// the file through mGBA/PSF, so a miniGSF is only accepted when its required
-/// library files are available in the extracted archive materialization.
-public struct HighlyCompleteCLIInspector: ScanFormatHandler {
-    public let descriptor: ScannerPluginDescriptor
-
-    public init(descriptor: ScannerPluginDescriptor) {
-        self.descriptor = descriptor
-    }
-
-    public func inspect(fileURL: URL, route: ScannerRoute) async throws -> ScanInspection {
-        let executable = try Self.executableURL()
-        let data = try await VGMStreamCommand.run(executable: executable, arguments: [fileURL.path])
-        let info: HighlyCompleteInfo
-        do {
-            info = try JSONDecoder().decode(HighlyCompleteInfo.self, from: data)
-        } catch {
-            throw ScannerInspectionError.library(
-                "Highly Complete returned invalid metadata for \(fileURL.lastPathComponent): \(error.localizedDescription)"
-            )
-        }
-        guard info.trackCount == 1 else {
-            throw ScannerInspectionError.malformedFile(
-                "Highly Complete reported an invalid track count (\(info.trackCount)) for \(fileURL.lastPathComponent)."
-            )
-        }
-        return ScanInspection(
-            route: route,
-            tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: info.metadata(fileURL: fileURL))]
-        )
-    }
-
-    private static func executableURL() throws -> URL {
-        if let configured = ProcessInfo.processInfo.environment["MEDIASCANNER_HIGHLY_COMPLETE_INSPECT"],
-           !configured.isEmpty {
-            let url = URL(fileURLWithPath: configured)
-            guard FileManager.default.isExecutableFile(atPath: url.path) else {
-                throw ScannerInspectionError.library("Configured Highly Complete plugin is not executable: \(url.path)")
-            }
-            return url
-        }
-        if let bundled = Bundle.main.url(forResource: "highly-complete-inspect", withExtension: nil),
-           FileManager.default.isExecutableFile(atPath: bundled.path) {
-            return bundled
-        }
-        throw ScannerInspectionError.missingRequiredAdapter(pluginID: "highly-complete", extensionName: "plugin")
-    }
-}
-
-private struct HighlyCompleteInfo: Decodable, Sendable {
-    let title: String
-    let game: String
-    let system: String
-    let artist: String
-    let comment: String
-    let introLengthMs: Int
-    let loopLengthMs: Int
-    let playLengthMs: Int
-    let fadeLengthMs: Int
-    let trackCount: Int
-
-    func metadata(fileURL: URL) -> ScannerMetadata {
-        ScannerMetadata(
-            game: game,
-            song: title.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
-                ?? fileURL.deletingPathExtension().lastPathComponent,
-            system: system,
-            author: artist,
-            comment: comment,
-            introLengthMs: max(0, introLengthMs),
-            loopLengthMs: max(0, loopLengthMs),
-            playLengthMs: max(0, playLengthMs),
-            fadeLengthMs: max(0, fadeLengthMs)
-        )
-    }
-}
-
-private struct VGMStreamInfo: Decodable, Sendable {
-    struct StreamInfo: Decodable, Sendable {
-        let name: String?
-        let total: Int?
-    }
-
-    struct LoopingInfo: Decodable, Sendable {
-        let start: Int64?
-        let end: Int64?
-    }
-
-    let sampleRate: Int?
-    let numberOfSamples: Int64?
-    let playSamples: Int64?
-    let metadataSource: String?
-    let streamInfo: StreamInfo?
-    let loopingInfo: LoopingInfo?
-
-    func metadata(fileURL: URL) -> ScannerMetadata {
-        let rate = max(1, sampleRate ?? 0)
-        let playFrames = max(0, playSamples ?? numberOfSamples ?? 0)
-        let loopFrames = max(0, (loopingInfo?.end ?? 0) - (loopingInfo?.start ?? 0))
-        return ScannerMetadata(
-            game: "",
-            song: streamInfo?.name?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
-                ?? fileURL.deletingPathExtension().lastPathComponent,
-            system: "",
-            author: "",
-            comment: metadataSource ?? "",
-            introLengthMs: 0,
-            loopLengthMs: Int(loopFrames * 1_000 / Int64(rate)),
-            playLengthMs: Int(playFrames * 1_000 / Int64(rate)),
-            fadeLengthMs: 0
-        )
-    }
-}
-
-private extension String {
-    var nonEmpty: String? { isEmpty ? nil : self }
-}
-
-private enum VGMStreamCommand {
-    static func run(executable: URL, arguments: [String]) async throws -> Data {
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = arguments
-        let output = Pipe()
-        let errors = Pipe()
-        process.standardOutput = output
-        process.standardError = errors
-        try process.run()
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                process.terminationHandler = { _ in continuation.resume() }
-            }
-        } onCancel: {
-            if process.isRunning { process.terminate() }
-        }
-        let errorText = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard process.terminationStatus == 0 else {
-            throw ScannerInspectionError.library(errorText.isEmpty ? "vgmstream could not inspect the file." : errorText)
-        }
-        return output.fileHandleForReading.readDataToEndOfFile()
-    }
 }
 
 private enum GMEInspector {

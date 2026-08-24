@@ -29,9 +29,13 @@ install -m 644 "$SCRIPT_DIR/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
 VGMSTREAM_CLI_SOURCE="${MEDIASCANNER_VGMSTREAM_CLI:-$VGMBoy_DIR/.build/scanner-plugins/vgmstream-cli}"
 [[ -x "$VGMSTREAM_CLI_SOURCE" ]] || { echo "Missing ScanSong vgmstream plugin: $VGMSTREAM_CLI_SOURCE" >&2; exit 1; }
 install -m 755 "$VGMSTREAM_CLI_SOURCE" "$APP_DIR/Contents/Resources/vgmstream-cli"
+QSF_INSPECT_SOURCE="${MEDIASCANNER_QSF_INSPECT:-$VGMBoy_DIR/.build/scanner-plugins/vgmboy-qsf-inspect}"
+[[ -x "$QSF_INSPECT_SOURCE" ]] || { echo "Missing ScanSong QSF plugin: $QSF_INSPECT_SOURCE" >&2; exit 1; }
+install -m 755 "$QSF_INSPECT_SOURCE" "$APP_DIR/Contents/Resources/vgmboy-qsf-inspect"
 
 if [[ -z "$HIGHLY_COMPLETE_INSPECT_SOURCE" ]]; then
     HIGHLY_COMPLETE_BIN_DIR="$(swift build --package-path "$VGMBoy_DIR" --disable-sandbox --configuration release --product vgmboy-highly-complete-inspect --show-bin-path)"
+    swift build --package-path "$VGMBoy_DIR" --disable-sandbox --configuration release --product vgmboy-highly-complete-inspect
     HIGHLY_COMPLETE_INSPECT_SOURCE="$HIGHLY_COMPLETE_BIN_DIR/vgmboy-highly-complete-inspect"
 fi
 [[ -x "$HIGHLY_COMPLETE_INSPECT_SOURCE" ]] || { echo "Missing ScanSong Highly Complete plugin: $HIGHLY_COMPLETE_INSPECT_SOURCE" >&2; exit 1; }
@@ -69,7 +73,7 @@ bundle_homebrew_dependency() {
     done < <(otool -L "$source" | tail -n +2 | awk '{print $1}')
 }
 
-for plugin in "$APP_DIR/Contents/Resources/vgmstream-cli" "$APP_DIR/Contents/Resources/highly-complete-inspect"; do
+for plugin in "$APP_DIR/Contents/Resources/vgmstream-cli" "$APP_DIR/Contents/Resources/highly-complete-inspect" "$APP_DIR/Contents/Resources/vgmboy-qsf-inspect"; do
     while IFS= read -r dependency; do
         if [[ "$dependency" == /opt/homebrew/* && -f "$dependency" ]]; then
             bundle_homebrew_dependency "$dependency"
@@ -90,7 +94,7 @@ for index in "${!bundled_names[@]}"; do
     done < <(otool -L "$source" | tail -n +2 | awk '{print $1}')
 done
 
-for plugin in "$APP_DIR/Contents/Resources/vgmstream-cli" "$APP_DIR/Contents/Resources/highly-complete-inspect"; do
+for plugin in "$APP_DIR/Contents/Resources/vgmstream-cli" "$APP_DIR/Contents/Resources/highly-complete-inspect" "$APP_DIR/Contents/Resources/vgmboy-qsf-inspect"; do
     while IFS= read -r dependency; do
         dependency_name="$(basename "$dependency")"
         if has_bundled_name "$dependency_name"; then

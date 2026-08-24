@@ -51,7 +51,7 @@ enum ScannerScanLogStore {
         if let terminal, !terminal.isEmpty {
             resultText = terminal
         } else if let result {
-            resultText = "\(result.discoveredSourceCount) discovered, \(result.trackCount) tracks, \(result.reusedSourceCount) reused"
+            resultText = "\(result.discoveredSourceCount) discovered, \(result.trackCount) tracks, \(result.reusedSourceCount) reused, \(result.skipped.count) skipped"
         } else {
             resultText = "\(tally.sourceCount) files, \(root.lastScanTrackCount) tracks"
         }
@@ -59,6 +59,9 @@ enum ScannerScanLogStore {
         lines.append(contentsOf: (result?.failures ?? []).map {
             let path = $0.identity.path + ($0.identity.archiveEntry.map { "#\($0)" } ?? "")
             return "failure: \($0.stage.rawValue) — \($0.message): \(path)"
+        })
+        lines.append(contentsOf: (result?.skipped ?? []).map {
+            "skip: \($0.reason.rawValue) — .\($0.extensionName): \($0.identityDescription)"
         })
 
         do {
@@ -77,7 +80,7 @@ enum ScannerScanLogStore {
         } ?? "not completed"
         let duration = root.lastScanStartedAt.flatMap { startedAt in
             root.lastScanCompletedAt.map { completedAt in
-                " • \(Int(completedAt.timeIntervalSince(startedAt).rounded()))s"
+                " • \(durationText(completedAt.timeIntervalSince(startedAt)))"
             }
         } ?? ""
         let issues = tally.failedSourceCount + tally.inactiveSourceCount + (root.lastScanError?.isEmpty == false ? 1 : 0)
@@ -109,6 +112,16 @@ enum ScannerScanLogStore {
             hash &*= 0x100000001b3
         }
         return String(format: "%016llx", hash)
+    }
+
+    private static func durationText(_ interval: TimeInterval) -> String {
+        let seconds = max(0, Int(interval.rounded()))
+        let hours = seconds / 3_600
+        let minutes = (seconds % 3_600) / 60
+        let remainder = seconds % 60
+        return hours > 0
+            ? String(format: "%02d:%02d:%02d", hours, minutes, remainder)
+            : String(format: "%02d:%02d", minutes, remainder)
     }
 
 }

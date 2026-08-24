@@ -43,6 +43,34 @@ private final class SequencedEventWriter: @unchecked Sendable {
     }
 }
 
+private final class ScanProgressReporter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lastEmissionAt = Date.distantPast
+    private var lastPhase: ScanLifecyclePhase?
+
+    func emit(_ update: CatalogScanProgress, to writer: SequencedEventWriter) {
+        let now = Date()
+        lock.lock()
+        defer { lock.unlock() }
+        let phaseChanged = lastPhase != update.phase
+        let phaseFinished = update.phaseCompleted != nil
+            && update.phaseCompleted == update.phaseTotal
+        guard phaseChanged || phaseFinished || now.timeIntervalSince(lastEmissionAt) >= 1 else { return }
+        lastEmissionAt = now
+        lastPhase = update.phase
+        let phaseDetail = update.detail.map { " — \($0)" } ?? ""
+        let detail = "\(update.phase.rawValue): \(update.processed)/\(update.discovered), \(update.failed) failed\(phaseDetail)"
+        writer.emit { sequence in
+            ScannerEvent(
+                kind: .diagnostic,
+                sequence: sequence,
+                path: update.currentPath ?? update.rootPath,
+                diagnostic: ScannerDiagnostic(code: "scan.progress", severity: .warning, message: detail)
+            )
+        }
+    }
+}
+
 @main
 private struct MediaScanCommand {
     static func main() async {
@@ -133,7 +161,17 @@ private struct MediaScanCommand {
         if let index = arguments.firstIndex(of: "--archive-limit"), index + 1 < arguments.count {
             archivePipelineLimit = Int(arguments[index + 1]).flatMap { $0 > 0 ? $0 : nil } ?? archivePipelineLimit
         }
-        let paths = arguments.filter { !$0.hasPrefix("--") }
+        var optionIndexes: Set<Int> = []
+        for (index, argument) in arguments.enumerated() {
+            if argument == "--permits" || argument == "--archive-limit" {
+                optionIndexes.insert(index)
+                if index + 1 < arguments.count { optionIndexes.insert(index + 1) }
+            }
+        }
+        let paths = arguments.enumerated().compactMap { item -> String? in
+            guard !optionIndexes.contains(item.offset), !item.element.hasPrefix("--") else { return nil }
+            return item.element
+        }
         guard paths.count >= 2 else {
             try writeFatal("scan requires a catalog path and at least one root folder")
             throw Exit.code(64)
@@ -147,6 +185,7 @@ private struct MediaScanCommand {
         )
         try write(ScannerEvent(kind: .sessionStarted, sequence: 0, path: databaseURL.path))
         let events = SequencedEventWriter(startingAt: 1)
+        let progressReporter = ScanProgressReporter()
 
         let operation = Task {
             var discovered = 0
@@ -155,15 +194,7 @@ private struct MediaScanCommand {
             var phaseMilliseconds: [ScanLifecyclePhase: Int] = [:]
             for root in roots {
                 let result = try await scanner.scan(rootURL: root, mode: mode) { update in
-                    let detail = "\(update.phase.rawValue): \(update.processed)/\(update.discovered), \(update.failed) failed"
-                    events.emit { sequence in
-                        ScannerEvent(
-                            kind: .diagnostic,
-                            sequence: sequence,
-                            path: update.currentPath ?? update.rootPath,
-                            diagnostic: ScannerDiagnostic(code: "scan.progress", severity: .warning, message: detail)
-                        )
-                    }
+                    progressReporter.emit(update, to: events)
                 }
                 discovered += result.discoveredSourceCount
                 accepted += result.trackCount
@@ -182,6 +213,25 @@ private struct MediaScanCommand {
                                 code: "scan.\(failure.stage.rawValue)",
                                 severity: .error,
                                 message: failure.message
+                            )
+                        )
+                    }
+                }
+                if !result.skipped.isEmpty {
+                    let counts = Dictionary(grouping: result.skipped, by: \.extensionName)
+                        .mapValues(\.count)
+                        .sorted { $0.key < $1.key }
+                        .map { ".\($0.key): \($0.value)" }
+                        .joined(separator: ", ")
+                    events.emit { sequence in
+                        ScannerEvent(
+                            kind: .diagnostic,
+                            sequence: sequence,
+                            path: roots.first?.path,
+                            diagnostic: ScannerDiagnostic(
+                                code: "scan.skipped.summary",
+                                severity: .warning,
+                                message: "Explicitly ignored files were recorded in the scan log (\(counts))."
                             )
                         )
                     }

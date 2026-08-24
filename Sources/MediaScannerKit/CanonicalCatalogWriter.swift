@@ -19,6 +19,36 @@ public struct CatalogLinkTestResult: Equatable, Sendable {
     public let restoredSourceCount: Int
 }
 
+public enum CatalogMaintenanceOperation: String, Sendable {
+    case checkLinks
+    case removeLinks
+}
+
+public struct CatalogMaintenanceProgress: Sendable {
+    public let operation: CatalogMaintenanceOperation
+    public let processed: Int
+    public let total: Int
+    public let failures: Int
+    public let currentPath: String?
+    public let detail: String
+
+    public init(
+        operation: CatalogMaintenanceOperation,
+        processed: Int,
+        total: Int,
+        failures: Int = 0,
+        currentPath: String? = nil,
+        detail: String
+    ) {
+        self.operation = operation
+        self.processed = processed
+        self.total = total
+        self.failures = failures
+        self.currentPath = currentPath
+        self.detail = detail
+    }
+}
+
 /// Per-root inventory counts for the scanner UI and the last-result log.
 ///
 /// `sourceCount` is physical source count: an archive remains one source even
@@ -176,30 +206,26 @@ public final class CanonicalCatalogWriter: @unchecked Sendable {
         )
     }
 
-    public func testFiles() throws -> CatalogLinkTestResult {
-        let sources: [(rootID: Int64, path: String)] = try query(
+    public func testFiles(
+        progress: (@Sendable (CatalogMaintenanceProgress) -> Void)? = nil
+    ) throws -> CatalogLinkTestResult {
+        let sources: [CatalogSourceLink] = try query(
             """
             SELECT DISTINCT i.root_id, i.path
             FROM scan_items i JOIN library_roots r ON r.id=i.root_id
             WHERE r.is_attached=1 AND i.archive_entry=''
             ORDER BY i.path;
             """
-        ) { (sqlite3_column_int64($0, 0), Self.string($0, 1)) }
-        var missing: [(Int64, String)] = []
-        for source in sources {
-            do {
-                _ = try FileManager.default.attributesOfItem(atPath: source.path)
-            } catch {
-                let cocoa = error as NSError
-                if cocoa.domain == NSCocoaErrorDomain,
-                   (cocoa.code == NSFileReadNoSuchFileError || cocoa.code == CocoaError.fileNoSuchFile.rawValue) {
-                    missing.append(source)
-                } else {
-                    throw Self.error("Could not inspect \(source.path): \(error.localizedDescription)")
-                }
-            }
-        }
-        let missingKeys = Set(missing.map { "\($0.0)\u{1f}\($0.1)" })
+        ) { CatalogSourceLink(rootID: sqlite3_column_int64($0, 0), path: Self.string($0, 1)) }
+        let missing = try CatalogLinkAuditor().missingSources(among: sources, progress: progress)
+        progress?(CatalogMaintenanceProgress(
+            operation: .checkLinks,
+            processed: sources.count,
+            total: sources.count,
+            failures: missing.count,
+            detail: "Updating missing-link status…"
+        ))
+        let missingKeys = Set(missing.map { "\($0.rootID)\u{1f}\($0.path)" })
         let previouslyDead: Set<String> = Set(try query(
             "SELECT root_id, path FROM dead_sources;"
         ) { "\(sqlite3_column_int64($0, 0))\u{1f}\(Self.string($0, 1))" })
@@ -210,7 +236,7 @@ public final class CanonicalCatalogWriter: @unchecked Sendable {
             for source in missing {
                 try execute(
                     "INSERT INTO dead_sources(root_id,path,marked_at) VALUES (?,?,?);",
-                    [.integer(source.0), .text(source.1), .real(now)]
+                    [.integer(source.rootID), .text(source.path), .real(now)]
                 )
             }
             for root in try roots() {
@@ -230,9 +256,17 @@ public final class CanonicalCatalogWriter: @unchecked Sendable {
     }
 
     @discardableResult
-    public func clearDeadLinks() throws -> Int {
+    public func clearDeadLinks(
+        progress: (@Sendable (CatalogMaintenanceProgress) -> Void)? = nil
+    ) throws -> Int {
         let count = try scalarInt("SELECT COUNT(*) FROM dead_sources;")
         guard count > 0 else { return 0 }
+        progress?(CatalogMaintenanceProgress(
+            operation: .removeLinks,
+            processed: 0,
+            total: count,
+            detail: "Removing \(count) inactive links…"
+        ))
         try execute("BEGIN IMMEDIATE;")
         do {
             try execute("DELETE FROM tracks WHERE EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=tracks.root_id AND d.path=tracks.path);")
@@ -243,6 +277,12 @@ public final class CanonicalCatalogWriter: @unchecked Sendable {
                 try updateActiveTrackCount(rootID: root.id)
             }
             try execute("COMMIT;")
+            progress?(CatalogMaintenanceProgress(
+                operation: .removeLinks,
+                processed: count,
+                total: count,
+                detail: "Removed \(count) inactive links."
+            ))
             return count
         } catch {
             try? execute("ROLLBACK;")
@@ -442,14 +482,14 @@ public final class CanonicalCatalogWriter: @unchecked Sendable {
             for record in records {
                 try insertTrack(stageID: stageID, rootPath: rootPath, record: record)
             }
-            let parentRoute = records.first?.route
+            let parentRoute = records.first?.route ?? failures.first?.route
             try upsertInventory(
                 rootID: stageID,
                 path: sourcePath,
                 archiveEntry: nil,
                 fingerprint: fingerprint,
                 route: parentRoute,
-                state: records.isEmpty && !failures.isEmpty ? .failed : .successful,
+                state: failures.isEmpty ? .successful : .failed,
                 failure: failures.first
             )
             let members = Dictionary(grouping: records.compactMap { record in
@@ -465,6 +505,18 @@ public final class CanonicalCatalogWriter: @unchecked Sendable {
                     route: record.route,
                     state: .successful,
                     failure: nil
+                )
+            }
+            for failure in failures {
+                guard let entry = failure.identity.archiveEntry else { continue }
+                try upsertInventory(
+                    rootID: stageID,
+                    path: sourcePath,
+                    archiveEntry: entry,
+                    fingerprint: failure.fingerprint,
+                    route: failure.route,
+                    state: .failed,
+                    failure: failure
                 )
             }
             try writeCheckpoint(stageID: stageID, path: sourcePath, fingerprint: fingerprint)
@@ -530,9 +582,16 @@ public final class CanonicalCatalogWriter: @unchecked Sendable {
         )
     }
 
-    public func publish(stageID: Int64, targetRootID: Int64) throws {
+    public func publish(
+        stageID: Int64,
+        targetRootID: Int64,
+        progress: (@Sendable (Int, Int, String) -> Void)? = nil
+    ) throws {
+        let total = 5
+        progress?(0, total, "Preparing atomic publication…")
         try execute("BEGIN IMMEDIATE;")
         do {
+            progress?(1, total, "Clearing old catalog indexes…")
             try execute("DELETE FROM game_sidebar_buckets WHERE root_id=?;", [.integer(targetRootID)])
             try execute("DELETE FROM file_sidebar_buckets WHERE root_id=?;", [.integer(targetRootID)])
             try execute(
@@ -541,9 +600,12 @@ public final class CanonicalCatalogWriter: @unchecked Sendable {
             )
             try execute("DELETE FROM tracks WHERE root_id=?;", [.integer(targetRootID)])
             try execute("DELETE FROM scan_items WHERE root_id=?;", [.integer(targetRootID)])
+            progress?(2, total, "Installing scanned sources…")
             try execute("UPDATE tracks SET root_id=? WHERE root_id=?;", [.integer(targetRootID), .integer(stageID)])
             try execute("UPDATE scan_items SET root_id=? WHERE root_id=?;", [.integer(targetRootID), .integer(stageID)])
+            progress?(3, total, "Rebuilding catalog indexes…")
             try rebuildBuckets(rootID: targetRootID)
+            progress?(4, total, "Finalizing catalog timestamps…")
             let now = Date().timeIntervalSince1970
             try execute(
                 """
@@ -559,6 +621,7 @@ public final class CanonicalCatalogWriter: @unchecked Sendable {
             )
             try execute("DELETE FROM library_roots WHERE id=?;", [.integer(stageID)])
             try execute("COMMIT;")
+            progress?(total, total, "Catalog published.")
         } catch {
             try? execute("ROLLBACK;")
             throw error
@@ -581,35 +644,7 @@ public final class CanonicalCatalogWriter: @unchecked Sendable {
         guard version == 0 else {
             throw Self.error("ScanSong does not migrate legacy catalog schema \(version). Choose a schema-23 catalog or a new database path.")
         }
-        let statements = [
-            "CREATE TABLE library_roots (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL UNIQUE, is_enabled INTEGER NOT NULL DEFAULT 1, display_order INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL, last_scan_started_at REAL, last_scan_completed_at REAL, last_scan_track_count INTEGER NOT NULL DEFAULT 0, last_scan_error TEXT, is_attached INTEGER NOT NULL DEFAULT 1, game_sidebar_buckets_dirty INTEGER NOT NULL DEFAULT 1, file_sidebar_buckets_dirty INTEGER NOT NULL DEFAULT 1);",
-            "CREATE TABLE tracks (id INTEGER PRIMARY KEY AUTOINCREMENT, root_id INTEGER NOT NULL, folder_path TEXT NOT NULL, path TEXT NOT NULL, filename TEXT NOT NULL, extension TEXT NOT NULL, browser_game TEXT NOT NULL DEFAULT '', browser_system TEXT NOT NULL DEFAULT '', track_index INTEGER NOT NULL DEFAULT 0, track_count INTEGER NOT NULL DEFAULT 1, file_size INTEGER NOT NULL, modified_at REAL NOT NULL, discovered_at REAL NOT NULL, archive_path TEXT, archive_entry TEXT, UNIQUE(root_id, path, archive_entry, track_index), FOREIGN KEY(root_id) REFERENCES library_roots(id) ON DELETE CASCADE);",
-            "CREATE TABLE track_metadata (track_id INTEGER PRIMARY KEY, title TEXT NOT NULL DEFAULT '', game TEXT NOT NULL DEFAULT '', author TEXT NOT NULL DEFAULT '', system TEXT NOT NULL DEFAULT '', comment TEXT NOT NULL DEFAULT '', intro_length_ms INTEGER NOT NULL DEFAULT 0, loop_length_ms INTEGER NOT NULL DEFAULT 0, play_length_ms INTEGER NOT NULL DEFAULT 0, fade_length_ms INTEGER NOT NULL DEFAULT 0, metadata_scanned_at REAL NOT NULL, FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE);",
-            "CREATE TABLE scan_items (id INTEGER PRIMARY KEY AUTOINCREMENT, root_id INTEGER NOT NULL, path TEXT NOT NULL, archive_entry TEXT NOT NULL DEFAULT '', file_size INTEGER NOT NULL, modified_at REAL NOT NULL, content_signature TEXT, state TEXT NOT NULL, plugin_id TEXT, format_extension TEXT, supports_archive_members INTEGER NOT NULL DEFAULT 0, supports_multi_track INTEGER NOT NULL DEFAULT 0, structure_policy TEXT NOT NULL DEFAULT 'knownSingle', metadata_policy TEXT NOT NULL DEFAULT 'decoder', failure_stage TEXT, failure_message TEXT, updated_at REAL NOT NULL, UNIQUE(root_id, path, archive_entry), FOREIGN KEY(root_id) REFERENCES library_roots(id) ON DELETE CASCADE);",
-            "CREATE TABLE scan_staging_roots (staging_root_id INTEGER PRIMARY KEY, target_root_id INTEGER NOT NULL, created_at REAL NOT NULL, state TEXT NOT NULL DEFAULT 'paused', mode TEXT NOT NULL DEFAULT 'newScan', policy_version INTEGER NOT NULL DEFAULT 1, updated_at REAL NOT NULL DEFAULT 0, last_error TEXT, FOREIGN KEY(staging_root_id) REFERENCES library_roots(id) ON DELETE CASCADE, FOREIGN KEY(target_root_id) REFERENCES library_roots(id) ON DELETE CASCADE);",
-            "CREATE TABLE scan_source_checkpoints (staging_root_id INTEGER NOT NULL, path TEXT NOT NULL, file_size INTEGER NOT NULL, modified_at REAL NOT NULL, content_signature TEXT, updated_at REAL NOT NULL, PRIMARY KEY(staging_root_id, path), FOREIGN KEY(staging_root_id) REFERENCES library_roots(id) ON DELETE CASCADE);",
-            "CREATE TABLE dead_sources (root_id INTEGER NOT NULL, path TEXT NOT NULL, marked_at REAL NOT NULL, PRIMARY KEY(root_id, path), FOREIGN KEY(root_id) REFERENCES library_roots(id) ON DELETE CASCADE);",
-            "CREATE TABLE game_sidebar_buckets (root_id INTEGER NOT NULL, browser_game TEXT NOT NULL, browser_system TEXT NOT NULL, track_count INTEGER NOT NULL, PRIMARY KEY(root_id, browser_game, browser_system), FOREIGN KEY(root_id) REFERENCES library_roots(id) ON DELETE CASCADE);",
-            "CREATE TABLE file_sidebar_buckets (root_id INTEGER NOT NULL, folder_path TEXT NOT NULL, path TEXT NOT NULL, is_archive INTEGER NOT NULL, track_count INTEGER NOT NULL, PRIMARY KEY(root_id, path), FOREIGN KEY(root_id) REFERENCES library_roots(id) ON DELETE CASCADE);",
-            "CREATE INDEX tracks_browser_bucket_index ON tracks(browser_game, browser_system, root_id);",
-            "CREATE INDEX tracks_file_tree_index ON tracks(root_id, folder_path, path);",
-            "CREATE INDEX tracks_source_lookup_index ON tracks(root_id, path);",
-            "CREATE INDEX tracks_game_sidebar_index ON tracks(browser_game, browser_system, root_id, path);",
-            "CREATE INDEX scan_items_state_index ON scan_items(root_id, state);",
-            "CREATE INDEX scan_staging_target_index ON scan_staging_roots(target_root_id);",
-            "CREATE INDEX scan_checkpoints_stage_index ON scan_source_checkpoints(staging_root_id, path);",
-            "CREATE INDEX dead_sources_path_index ON dead_sources(path);",
-            "CREATE INDEX file_sidebar_buckets_tree_index ON file_sidebar_buckets(root_id, folder_path, path);",
-            "PRAGMA user_version=23;"
-        ]
-        try execute("BEGIN TRANSACTION;")
-        do {
-            for statement in statements { try execute(statement) }
-            try execute("COMMIT;")
-        } catch {
-            try? execute("ROLLBACK;")
-            throw error
-        }
+        try CanonicalCatalogSchema.install { try execute($0) }
     }
 
     private func recoverInterruptedStages() throws {

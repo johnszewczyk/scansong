@@ -8,13 +8,120 @@ import Testing
     #expect(registry.route(pathExtension: "spc")?.metadataPolicy == .direct)
     #expect(registry.route(pathExtension: ".NSF")?.structurePolicy == .enumerate)
     #expect(registry.route(pathExtension: "gbs")?.structurePolicy == .enumerate)
-    #expect(registry.route(pathExtension: "flac")?.metadataPolicy == .optionalDeferred)
+    #expect(registry.route(pathExtension: "flac")?.metadataPolicy == .direct)
     #expect(registry.route(pathExtension: "txtp")?.structurePolicy == .dependencyEnumerate)
     #expect(registry.route(pathExtension: "sid")?.structurePolicy == .knownSingle)
     #expect(registry.route(pathExtension: "sid")?.metadataPolicy == .direct)
-    #expect(registry.route(pathExtension: "ogg")?.metadataPolicy == .optionalDeferred)
+    #expect(registry.route(pathExtension: "ogg")?.metadataPolicy == .direct)
     #expect(registry.route(pathExtension: "ogg")?.pluginID == "standard-audio")
     #expect(registry.route(pathExtension: "ogg")?.pluginID != "vgmstream")
+    #expect(registry.route(pathExtension: "qsf")?.pluginID == "qsf")
+    #expect(registry.route(pathExtension: "miniqsf")?.pluginID == "qsf-mini")
+    #expect(registry.route(pathExtension: "miniqsf")?.structurePolicy == .dependencyEnumerate)
+    #expect(registry.route(pathExtension: "strm")?.pluginID == "vgmstream")
+    #expect(registry.route(pathExtension: "ahx")?.pluginID == "vgmstream")
+    #expect(registry.route(pathExtension: "xmd")?.pluginID == "vgmstream")
+    #expect(registry.route(pathExtension: "hd")?.pluginID == "vgmstream-hd-bank")
+    for ext in BuiltInScannerPlugins.gameCubeVGMStreamExtensions {
+        #expect(registry.route(pathExtension: ext)?.pluginID == "vgmstream")
+    }
+    #expect(registry.route(pathExtension: "txth") == nil)
+    #expect(registry.route(pathExtension: "sbb") == nil)
+    #expect(ScannerFormatPolicy.defaultIgnoredExtensions.contains("sgc"))
+    #expect(ScannerFormatPolicy.defaultIgnoredExtensions.contains("minincsf"))
+    #expect(ScannerFormatPolicy.defaultIgnoredExtensions.contains("mus"))
+}
+
+@Test(
+    "Core Audio inspection publishes FLAC metadata and duration",
+    .enabled(
+        if: ProcessInfo.processInfo.environment["MEDIASCANNER_FLAC_FIXTURE"] != nil,
+        "Set MEDIASCANNER_FLAC_FIXTURE to run the archive-backed FLAC metadata check."
+    )
+)
+func flacFixturePublishesStandardMetadata() async throws {
+    let path = try #require(ProcessInfo.processInfo.environment["MEDIASCANNER_FLAC_FIXTURE"])
+    let route = try #require(BuiltInScannerPlugins.registry.route(pathExtension: "flac"))
+    let handler = try #require(BuiltInFormatInspectors.registry.handler(for: route))
+    let inspection = try await handler.inspect(fileURL: URL(fileURLWithPath: path), route: route)
+    let metadata = try #require(inspection.tracks.first?.metadata)
+    #expect(metadata.system == "Standard audio")
+    #expect(metadata.song == "Credits")
+    #expect(metadata.game == "NeuroDancer - Journey into the Neuronet!")
+    #expect(metadata.playLengthMs > 0)
+}
+
+@Test(
+    "GameCube routes open through the bundled inspector with real timing",
+    .enabled(
+        if: ProcessInfo.processInfo.environment["MEDIASCANNER_GAMECUBE_FIXTURES"] != nil,
+        "Set MEDIASCANNER_GAMECUBE_FIXTURES to run the archive-backed GameCube scanner checks."
+    )
+)
+func gameCubeFixturesInspectThroughVGMStream() async throws {
+    let rootPath = try #require(ProcessInfo.processInfo.environment["MEDIASCANNER_GAMECUBE_FIXTURES"])
+    let root = URL(fileURLWithPath: rootPath, isDirectory: true)
+    let enumerator = try #require(FileManager.default.enumerator(
+        at: root,
+        includingPropertiesForKeys: [.isRegularFileKey],
+        options: [.skipsPackageDescendants]
+    ))
+    let admitted = BuiltInScannerPlugins.gameCubeVGMStreamExtensions.union(["txtp"])
+    let fixtures = enumerator.compactMap { $0 as? URL }.filter {
+        admitted.contains($0.pathExtension.lowercased())
+    }
+    #expect(Set(fixtures.map { $0.pathExtension.lowercased() }) == admitted)
+
+    for fixture in fixtures.sorted(by: { $0.path < $1.path }) {
+        let route = try #require(BuiltInScannerPlugins.registry.route(pathExtension: fixture.pathExtension))
+        let handler = try #require(BuiltInFormatInspectors.registry.handler(for: route))
+        let inspection = try await handler.inspect(fileURL: fixture, route: route)
+        #expect(!inspection.tracks.isEmpty, Comment(rawValue: fixture.lastPathComponent))
+        #expect(inspection.tracks.allSatisfy {
+            ($0.metadata?.playLengthMs ?? 0) > 0
+        }, Comment(rawValue: fixture.lastPathComponent))
+    }
+}
+
+@Test func txtpPreparationRetainsDependenciesWithoutPublishingDuplicateSources() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("MediaScanner-txtp-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let bank = root.appendingPathComponent("Bgm", isDirectory: true)
+    try FileManager.default.createDirectory(at: bank, withIntermediateDirectories: true)
+    let directDependency = bank.appendingPathComponent("direct.adp")
+    let flattenedDependency = root.appendingPathComponent("flattened.rsf")
+    try Data([0]).write(to: directDependency)
+    try Data([0]).write(to: flattenedDependency)
+    try Data("Bgm/direct.adp\nBgm/flattened.rsf #I 0 1000\n".utf8)
+        .write(to: root.appendingPathComponent("game.txtp"))
+
+    let dependencies = try TXTPDependencyResolver().prepareDependencies(in: root)
+    let alias = bank.appendingPathComponent("flattened.rsf")
+    #expect(FileManager.default.fileExists(atPath: alias.path))
+    #expect(dependencies == Set([
+        directDependency.standardizedFileURL.path,
+        flattenedDependency.standardizedFileURL.path,
+        alias.standardizedFileURL.path
+    ]))
+}
+
+@Test func ignoredFileTypePolicySkipsOnlyConfiguredExtensions() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("MediaScanner-ignore-policy-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try Data(repeating: 0, count: 4).write(to: root.appendingPathComponent("Game.sgc"))
+    try Data(repeating: 0, count: 4).write(to: root.appendingPathComponent("Game.strm"))
+
+    let candidates = try await ScanFilesystemDiscovery.discover(
+        rootID: 1,
+        rootURL: root,
+        registry: BuiltInScannerPlugins.registry,
+        isArchive: { _ in false },
+        ignoredFileExtensions: ScannerFormatPolicy.defaultIgnoredExtensions
+    )
+    #expect(candidates.map(\.sourceURL.lastPathComponent) == ["Game.strm"])
 }
 
 @Test func sidHeaderReaderPublishesCommodore64Metadata() async throws {
@@ -62,6 +169,11 @@ import Testing
     #expect(result.events.contains { $0.route?.pluginID == "gme" })
     #expect(result.events.contains { $0.diagnostic?.code == "source.unrecognized" })
     #expect(result.events.last?.discovered == 2)
+
+    try Data("SGC".utf8).write(to: root.appendingPathComponent("ignored.sgc"))
+    let ignored = try DryRunProbe().run(paths: [root.appendingPathComponent("ignored.sgc").path], recursive: false, strict: true)
+    #expect(!ignored.hasErrors)
+    #expect(ignored.events.contains { $0.diagnostic?.code == "source.ignored" })
 }
 
 @Test func dryRunStopsBeforeWorkWhenCancellationIsRequested() throws {
@@ -81,6 +193,29 @@ import Testing
     let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     #expect(json["contract"] as? String == MediaScannerContract.name)
     #expect(json["version"] as? Int == MediaScannerContract.version)
+}
+
+@Test func inspectorProcessRunnerRejectsExcessiveOutput() async throws {
+    await #expect(throws: ScannerInspectionError.self) {
+        _ = try await InspectorProcessRunner.run(
+            executable: URL(fileURLWithPath: "/usr/bin/printf"),
+            arguments: ["123456789"],
+            standardOutputLimit: 4
+        )
+    }
+}
+
+@Test func inspectorProcessRunnerTerminatesTimedOutTools() async throws {
+    let clock = ContinuousClock()
+    let started = clock.now
+    await #expect(throws: ScannerInspectionError.self) {
+        _ = try await InspectorProcessRunner.run(
+            executable: URL(fileURLWithPath: "/bin/sleep"),
+            arguments: ["5"],
+            timeout: .milliseconds(20)
+        )
+    }
+    #expect(started.duration(to: clock.now) < .seconds(2))
 }
 
 @Test func canonicalCatalogValidationAcceptsOnlyTheSharedSchema() throws {

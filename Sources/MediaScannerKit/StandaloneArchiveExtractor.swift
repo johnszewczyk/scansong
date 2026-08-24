@@ -8,9 +8,16 @@ public struct ExtractedScanArchive: Sendable {
         public let route: ScannerRoute
     }
 
+    public struct SkippedMember: Sendable {
+        public let entryPath: String
+        public let extensionName: String
+        public let reason: ScanSkipReason
+    }
+
     public let archiveURL: URL
     public let scratchURL: URL
     public let members: [Member]
+    public let skippedMembers: [SkippedMember]
 }
 
 public enum StandaloneArchiveError: LocalizedError {
@@ -49,7 +56,8 @@ public struct StandaloneArchiveExtractor: Sendable {
 
     public func extractForScan(
         archiveURL: URL,
-        registry: ScannerPluginRegistry = BuiltInScannerPlugins.registry
+        registry: ScannerPluginRegistry = BuiltInScannerPlugins.registry,
+        ignoredFileExtensions: Set<String> = []
     ) async throws -> ExtractedScanArchive {
         try Task.checkCancellation()
         let root = try makeScratchDirectory()
@@ -61,8 +69,20 @@ public struct StandaloneArchiveExtractor: Sendable {
             } else {
                 try await extractWith7Zip(archiveURL: archiveURL, payloadURL: payload, scratchURL: root)
             }
-            let members = try enumerateMembers(payloadURL: payload, registry: registry)
-            return ExtractedScanArchive(archiveURL: archiveURL, scratchURL: root, members: members)
+            try normalizeExtractedDirectories(at: payload)
+            let txtpDependencyPaths = try TXTPDependencyResolver().prepareDependencies(in: payload)
+            let listing = try ArchiveMemberEnumerator().enumerate(
+                payloadURL: payload,
+                registry: registry,
+                ignoredFileExtensions: ignoredFileExtensions,
+                dependencyPaths: txtpDependencyPaths
+            )
+            return ExtractedScanArchive(
+                archiveURL: archiveURL,
+                scratchURL: root,
+                members: listing.members,
+                skippedMembers: listing.skipped
+            )
         } catch {
             try? fileManager.removeItem(at: root)
             throw error
@@ -74,28 +94,24 @@ public struct StandaloneArchiveExtractor: Sendable {
     }
 
     private func extractTarZstandard(archiveURL: URL, payloadURL: URL, scratchURL: URL) async throws {
-        let zstd = try requiredTool(["/opt/homebrew/bin/zstd", "/usr/local/bin/zstd"])
         let tar = try requiredTool(["/usr/bin/tar"])
-        let tarURL = scratchURL.appendingPathComponent("expanded.tar", isDirectory: false)
-
-        _ = try await ScannerCommand.run(
-            executable: zstd,
-            arguments: ["-d", "-q", "-f", archiveURL.path, "-o", tarURL.path],
-            logURL: scratchURL.appendingPathComponent("zstd.log")
-        )
-        try Task.checkCancellation()
         let listing = try await ScannerCommand.run(
             executable: tar,
-            arguments: ["-tf", tarURL.path],
+            arguments: ["-tf", archiveURL.path],
             logURL: scratchURL.appendingPathComponent("tar-list.log")
         )
         try validateTarListing(listing)
+        let verboseListing = try await ScannerCommand.run(
+            executable: tar,
+            arguments: ["-tvf", archiveURL.path],
+            logURL: scratchURL.appendingPathComponent("tar-verbose-list.log")
+        )
+        try validateTarExpandedSize(verboseListing)
         _ = try await ScannerCommand.run(
             executable: tar,
-            arguments: ["-xf", tarURL.path, "-C", payloadURL.path],
+            arguments: ["-xf", archiveURL.path, "-C", payloadURL.path],
             logURL: scratchURL.appendingPathComponent("tar-extract.log")
         )
-        try? fileManager.removeItem(at: tarURL)
     }
 
     private func extractWith7Zip(archiveURL: URL, payloadURL: URL, scratchURL: URL) async throws {
@@ -112,54 +128,16 @@ public struct StandaloneArchiveExtractor: Sendable {
         )
     }
 
-    private func enumerateMembers(
-        payloadURL: URL,
-        registry: ScannerPluginRegistry
-    ) throws -> [ExtractedScanArchive.Member] {
-        let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey]
+    private func normalizeExtractedDirectories(at rootURL: URL) throws {
         guard let enumerator = fileManager.enumerator(
-            at: payloadURL,
-            includingPropertiesForKeys: keys,
-            options: [.skipsHiddenFiles]
-        ) else { return [] }
-        let canonicalRoot = payloadURL.standardizedFileURL.path + "/"
-        var totalBytes: Int64 = 0
-        var fileCount = 0
-        var members: [ExtractedScanArchive.Member] = []
-        for case let fileURL as URL in enumerator {
-            try Task.checkCancellation()
-            let values = try fileURL.resourceValues(forKeys: Set(keys))
-            if values.isSymbolicLink == true {
-                throw StandaloneArchiveError.unsafeEntry(fileURL.path)
-            }
-            guard values.isRegularFile == true else { continue }
-            fileCount += 1
-            guard fileCount <= Self.maximumMemberCount else {
-                throw StandaloneArchiveError.resourceLimit("Archive exceeds the \(Self.maximumMemberCount)-member safety limit.")
-            }
-            let standardizedPath = fileURL.standardizedFileURL.path
-            guard standardizedPath.hasPrefix(canonicalRoot) else {
-                throw StandaloneArchiveError.unsafeEntry(standardizedPath)
-            }
-            let size = Int64(values.fileSize ?? 0)
-            totalBytes += size
-            guard totalBytes <= Self.maximumExpandedBytes else {
-                throw StandaloneArchiveError.resourceLimit("Archive expands beyond the 8 GiB scan safety limit.")
-            }
-            let entry = String(standardizedPath.dropFirst(canonicalRoot.count))
-            guard Self.isSafeRelativePath(entry) else { throw StandaloneArchiveError.unsafeEntry(entry) }
-            guard let route = registry.route(for: fileURL.pathExtension, archiveMember: true) else { continue }
-            members.append(.init(
-                entryPath: entry,
-                fileURL: fileURL,
-                fingerprint: ScanFingerprint(
-                    fileSize: size,
-                    modifiedAt: values.contentModificationDate ?? .distantPast
-                ),
-                route: route
-            ))
+            at: rootURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: []
+        ) else { return }
+        for case let url as URL in enumerator {
+            guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
+            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
         }
-        return members.sorted { $0.entryPath.localizedStandardCompare($1.entryPath) == .orderedAscending }
     }
 
     private func validateTarListing(_ data: Data) throws {
@@ -173,7 +151,29 @@ public struct StandaloneArchiveExtractor: Sendable {
         }
     }
 
-    private static func isSafeRelativePath(_ path: String) -> Bool {
+    private func validateTarExpandedSize(_ data: Data) throws {
+        var parsedEntries = 0
+        var totalBytes: Int64 = 0
+        for line in String(decoding: data, as: UTF8.self).split(whereSeparator: \.isNewline) {
+            let fields = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            guard fields.count > 4, let size = Int64(fields[4]) else { continue }
+            parsedEntries += 1
+            let (sum, overflow) = totalBytes.addingReportingOverflow(size)
+            guard !overflow else {
+                throw StandaloneArchiveError.resourceLimit("Archive expanded size exceeds the scanner safety limit.")
+            }
+            totalBytes = sum
+            guard totalBytes <= Self.maximumExpandedBytes else {
+                throw StandaloneArchiveError.resourceLimit("Archive expands beyond the 8 GiB scan safety limit.")
+            }
+        }
+        // macOS tar emits a size field for regular files. If a future tar
+        // format changes that output, the post-extraction member accounting
+        // remains the fallback safety check.
+        _ = parsedEntries
+    }
+
+    static func isSafeRelativePath(_ path: String) -> Bool {
         guard !path.isEmpty, !path.hasPrefix("/"), !path.contains("\\") else { return false }
         return !path.split(separator: "/", omittingEmptySubsequences: false).contains("..")
     }
@@ -182,9 +182,28 @@ public struct StandaloneArchiveExtractor: Sendable {
         let cache = fileManager.temporaryDirectory
             .appendingPathComponent("MediaScanner-ScanScratch", isDirectory: true)
         try fileManager.createDirectory(at: cache, withIntermediateDirectories: true)
+        reapStaleScratchDirectories(in: cache)
         let root = cache.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         return root
+    }
+
+    private func reapStaleScratchDirectories(in cache: URL) {
+        guard let urls = try? fileManager.contentsOfDirectory(
+            at: cache,
+            includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
+        for url in urls {
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue,
+                  let attributes = try? fileManager.attributesOfItem(atPath: url.path),
+                  let modified = attributes[.modificationDate] as? Date,
+                  modified < cutoff else { continue }
+            try? fileManager.removeItem(at: url)
+        }
     }
 
     private func requiredTool(_ candidates: [String]) throws -> URL {

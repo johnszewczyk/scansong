@@ -27,21 +27,41 @@
 
 - Check Links marks missing or moved sources inactive and removes them from
   the player-visible catalog without deleting their retained records.
-- Clean Links permanently removes only inactive catalog entries. It never
+- Remove Links permanently removes only inactive catalog entries. It never
   deletes media files.
 
 ## Scan Results
 
 - The last-result log has a fixed `status: result: file` layout; the variable
   path is always last. Scan Status is the only in-window summary.
-- During a scan, the displayed progress and Current Activity/File Path/File Name
-  fields coalesce scanner updates every 250 ms. The scanner itself keeps its
-  full-resolution progress callbacks; only SwiftUI presentation is throttled.
+- During Scan, Check Links, or Remove Links, Scan Status shows only sampled
+  aggregate progress and failure counts. Operation callbacks are retained as a
+  single latest value and sampled by the UI every 250 ms; no callback can pace
+  the worker. CLI JSONL diagnostics are separately rate-limited to
+  phase changes, phase completion, or at most one event per second; diagnostic
+  output must never become the scan's throughput limiter.
+- While active, Scan Status presents a bold `Current Scan` heading followed by
+  indented monospaced `Items:` and `Fails:` counters. These aggregate readouts
+  disappear when the operation finishes; completion is a compact green checkmark
+  row with operation duration and finish time.
 - Closing the app while a scan or link-maintenance operation is active presents
   a warning. A scan can be cancelled and closes only after completed checkpoints
   are retained; maintenance closes only after its current database operation.
 
+## Options
+
+- The Options window uses the CocoaSpice split-sidebar layout. Its first sidebar
+  section is `File Types`.
+- File Types shows checkbox controls for documented decoder-absent extensions.
+  Checked types are ignored before discovery and archive-member inspection;
+  supported formats remain active so malformed files still appear in the scan
+  result and last-result log.
+- The ignore selection is persisted in ScanSong preferences. Explicitly ignored
+  files are recorded in the post-operation scan log; unrelated files without a
+  scanner route are excluded from candidates without per-file output.
+
 ## Files
 
 - `Sources/MediaScannerApp/MediaScannerApp.swift`
+- `Sources/MediaScannerApp/ScannerOptionsView.swift`
 - `Sources/MediaScannerApp/ScannerScanLog.swift`

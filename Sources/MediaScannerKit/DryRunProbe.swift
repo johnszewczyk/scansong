@@ -49,9 +49,14 @@ public enum DryRunProbeError: LocalizedError {
 
 public struct DryRunProbe: Sendable {
     public let registry: ScannerPluginRegistry
+    public let ignoredFileExtensions: Set<String>
 
-    public init(registry: ScannerPluginRegistry = BuiltInScannerPlugins.registry) {
+    public init(
+        registry: ScannerPluginRegistry = BuiltInScannerPlugins.registry,
+        ignoredFileExtensions: Set<String> = ScannerFormatPolicy.defaultIgnoredExtensions
+    ) {
         self.registry = registry
+        self.ignoredFileExtensions = Set(ignoredFileExtensions.map(ScannerFormatPolicy.normalize))
     }
 
     public func run(
@@ -84,7 +89,18 @@ public struct DryRunProbe: Sendable {
             ))
             events.append(ScannerEvent(kind: .sourceDiscovered, sequence: sequence, path: url.path))
             sequence += 1
-            if let route = registry.route(pathExtension: url.pathExtension) {
+            if ignoredFileExtensions.contains(ScannerFormatPolicy.normalize(url.pathExtension)) {
+                events.append(ScannerEvent(
+                    kind: .diagnostic,
+                    sequence: sequence,
+                    path: url.path,
+                    diagnostic: ScannerDiagnostic(
+                        code: "source.ignored",
+                        severity: .warning,
+                        message: "Ignored by the configured file-type policy."
+                    )
+                ))
+            } else if let route = registry.route(pathExtension: url.pathExtension) {
                 accepted += 1
                 events.append(ScannerEvent(kind: .sourceRouted, sequence: sequence, path: url.path, route: route))
             } else if isArchive(url) {

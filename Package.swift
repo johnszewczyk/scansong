@@ -10,6 +10,9 @@ let package = Package(
         .executable(name: "media-scan", targets: ["media-scan"]),
         .executable(name: "ScanSong", targets: ["MediaScannerApp"])
     ],
+    dependencies: [
+        .package(path: "../VGMBoy")
+    ],
     targets: [
         .systemLibrary(
             name: "CGameMusicEmu",
@@ -19,8 +22,14 @@ let package = Package(
         ),
         .target(
             name: "MediaScannerKit",
-            dependencies: ["CGameMusicEmu"],
-            linkerSettings: [.linkedLibrary("sqlite3")]
+            dependencies: [
+                "CGameMusicEmu",
+                .product(name: "VGMBoyFormatCore", package: "VGMBoy")
+            ],
+            linkerSettings: [
+                .linkedLibrary("sqlite3"),
+                .linkedFramework("AVFoundation")
+            ]
         ),
         .executableTarget(name: "media-scan", dependencies: ["MediaScannerKit"]),
         .executableTarget(

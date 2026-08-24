@@ -19,6 +19,7 @@ private enum MaintenanceOutcome: Sendable {
 @MainActor
 final class ScannerAppModel: ObservableObject {
     private static let catalogPathKey = "MediaScanner.catalogPath"
+    private static let ignoredFileTypesKey = "MediaScanner.ignoredFileTypes"
     private static let cocoaSpiceDefaultsSuite = "com.local.cocoaspice"
     private static let cocoaSpiceCatalogPathKey = "CocoaSpice.libraryDatabasePath"
 
@@ -29,7 +30,8 @@ final class ScannerAppModel: ObservableObject {
     @Published var scanStatus = "Add one or more scan paths."
     @Published var currentPath: String?
     @Published var currentFile: String?
-    @Published var progress: CatalogScanProgress?
+    @Published var operationProgress: ScannerOperationProgress?
+    @Published private(set) var completedOperation: ScannerOperationTelemetry?
     @Published var isScanning = false
     @Published var isMaintaining = false
     @Published var deepScan = false
@@ -37,12 +39,12 @@ final class ScannerAppModel: ObservableObject {
     @Published var showsResetCatalogConfirmation = false
     @Published var showsDeleteCatalogConfirmation = false
     @Published var showsCleanLinksConfirmation = false
+    @Published private(set) var ignoredFileExtensions: Set<String>
 
     private var scanTask: Task<Void, Never>?
     private var worker: Task<ScanOutcome, Never>?
-    private var pendingProgress: CatalogScanProgress?
-    private var progressUpdateTask: Task<Void, Never>?
     private var activeRootID: Int64?
+    private var operationStartedAt: Date?
     private var logWindows: [Int64: ScannerScanLogWindow] = [:]
     private var closeWhenIdle: (() -> Void)?
 
@@ -53,6 +55,12 @@ final class ScannerAppModel: ObservableObject {
         } else {
             databaseURL = Self.defaultCatalogURL()
         }
+        let knownExtensions = Set(ScannerFormatPolicy.knownUnsupportedFileTypes.map(\.id))
+        let storedExtensions = UserDefaults.standard.stringArray(forKey: Self.ignoredFileTypesKey) ?? []
+        ignoredFileExtensions = Set(storedExtensions.map(ScannerFormatPolicy.normalize)).intersection(knownExtensions)
+        if storedExtensions.isEmpty {
+            ignoredFileExtensions = ScannerFormatPolicy.defaultIgnoredExtensions
+        }
         validateCatalog()
     }
 
@@ -60,14 +68,30 @@ final class ScannerAppModel: ObservableObject {
     var canScanAll: Bool { !isBusy && roots.contains(where: \.isEnabled) }
     var hasInactiveLinks: Bool { roots.contains(where: { $0.deadSourceCount > 0 }) }
     var hasDatabaseFile: Bool { FileManager.default.fileExists(atPath: databaseURL.path) }
+    var fileTypePolicies: [ScannerFileTypePolicy] { ScannerFormatPolicy.knownUnsupportedFileTypes }
 
     var databaseFileDisplayPath: String {
         hasDatabaseFile ? databaseURL.path : "(None)"
     }
 
+    func isFileTypeIgnored(_ policy: ScannerFileTypePolicy) -> Bool {
+        ignoredFileExtensions.contains(policy.id)
+    }
+
+    func setFileTypeIgnored(_ extensionName: String, ignored: Bool) {
+        guard !isBusy else { return }
+        let normalized = ScannerFormatPolicy.normalize(extensionName)
+        guard fileTypePolicies.contains(where: { $0.id == normalized }) else { return }
+        if ignored {
+            ignoredFileExtensions.insert(normalized)
+        } else {
+            ignoredFileExtensions.remove(normalized)
+        }
+        UserDefaults.standard.set(Array(ignoredFileExtensions).sorted(), forKey: Self.ignoredFileTypesKey)
+    }
+
     var progressFraction: Double? {
-        guard let progress, progress.discovered > 0 else { return nil }
-        return min(max(Double(progress.processed) / Double(progress.discovered), 0), 1)
+        operationProgress?.fraction
     }
 
     func chooseCatalog() {
@@ -199,11 +223,15 @@ final class ScannerAppModel: ObservableObject {
     }
 
     func checkLinks() {
-        runMaintenance(starting: "Checking catalog links…") { .checked(try $0.testFiles()) }
+        runMaintenance(kind: .checkLinks, starting: "Checking catalog links…") { writer, progress in
+            .checked(try writer.testFiles(progress: progress))
+        }
     }
 
     func cleanLinks() {
-        runMaintenance(starting: "Cleaning inactive catalog links…") { .cleaned(try $0.clearDeadLinks()) }
+        runMaintenance(kind: .removeLinks, starting: "Removing inactive catalog links…") { writer, progress in
+            .cleaned(try writer.clearDeadLinks(progress: progress))
+        }
     }
 
     func showScanLog(_ id: Int64) {
@@ -345,42 +373,43 @@ final class ScannerAppModel: ObservableObject {
     private func startScan(roots requestedRoots: [CatalogRoot]) {
         guard !isBusy, !requestedRoots.isEmpty else { return }
         let databaseURL = databaseURL
+        let ignoredFileExtensions = ignoredFileExtensions
         let mode: ScanMode = deepScan ? .newScan : .incremental
-        let (updates, continuation) = AsyncStream.makeStream(of: CatalogScanProgress.self)
+        let progressBuffer = LatestValueBuffer<CatalogScanProgress>()
         isScanning = true
-        progressUpdateTask?.cancel()
-        progressUpdateTask = nil
-        pendingProgress = nil
-        progress = nil
+        operationProgress = nil
+        completedOperation = nil
+        operationStartedAt = Date()
+        activeRootID = requestedRoots.first?.id
         currentPath = nil
         currentFile = nil
-        activeRootID = requestedRoots.first?.id
         scanStatus = "Preparing catalog…"
 
         let worker = Task.detached(priority: .utility) {
+            defer { progressBuffer.finish() }
             do {
-                let scanner = try CatalogScanner(databaseURL: databaseURL)
+                let scanner = try CatalogScanner(
+                    databaseURL: databaseURL,
+                    ignoredFileExtensions: ignoredFileExtensions
+                )
                 var results: [CatalogScanResult] = []
                 for root in requestedRoots {
                     try Task.checkCancellation()
                     results.append(try await scanner.scan(rootURL: URL(fileURLWithPath: root.path), mode: mode) {
-                        continuation.yield($0)
+                        progressBuffer.publish($0)
                     })
                 }
-                continuation.finish()
                 return ScanOutcome.success(results)
             } catch is CancellationError {
-                continuation.finish()
                 return ScanOutcome.cancelled
             } catch {
-                continuation.finish()
                 return ScanOutcome.failure(error.localizedDescription)
             }
         }
         self.worker = worker
         scanTask = Task { [weak self] in
             guard let self else { return }
-            for await update in updates { self.apply(update) }
+            await self.sampleProgress(from: progressBuffer, apply: self.applyVisibleProgress)
             self.finish(await worker.value)
         }
     }
@@ -396,24 +425,59 @@ final class ScannerAppModel: ObservableObject {
     }
 
     private func runMaintenance(
+        kind: ScannerOperationKind,
         starting activity: String,
-        _ operation: @escaping @Sendable (CanonicalCatalogWriter) throws -> MaintenanceOutcome
+        _ operation: @escaping @Sendable (CanonicalCatalogWriter, @escaping @Sendable (CatalogMaintenanceProgress) -> Void) throws -> MaintenanceOutcome
     ) {
         guard !isBusy else { return }
         isMaintaining = true
+        operationStartedAt = Date()
+        completedOperation = nil
+        operationProgress = ScannerOperationProgress(
+            operation: kind,
+            phase: "preparing",
+            processed: 0,
+            total: nil,
+            failures: 0,
+            detail: activity
+        )
         scanStatus = activity
         let databaseURL = databaseURL
+        let progressBuffer = LatestValueBuffer<CatalogMaintenanceProgress>()
+        let worker = Task.detached(priority: .utility) {
+            defer { progressBuffer.finish() }
+            do {
+                let result = try operation(
+                    CanonicalCatalogWriter(databaseURL: databaseURL),
+                    { progressBuffer.publish($0) }
+                )
+                return result
+            } catch {
+                return MaintenanceOutcome.failure(error.localizedDescription)
+            }
+        }
         Task {
-            let outcome = await Task.detached(priority: .utility) {
-                do { return try operation(CanonicalCatalogWriter(databaseURL: databaseURL)) }
-                catch { return MaintenanceOutcome.failure(error.localizedDescription) }
-            }.value
+            await self.sampleProgress(from: progressBuffer, apply: self.applyMaintenanceProgress)
+            let outcome = await worker.value
             isMaintaining = false
             switch outcome {
             case .checked(let result):
-                scanStatus = "Checked \(result.testedSourceCount) files • \(result.missingSourceCount) marked inactive • \(result.restoredSourceCount) restored"
+                let missingDescription = result.missingSourceCount == 0
+                    ? "No missing files found"
+                    : "\(result.missingSourceCount) missing file\(result.missingSourceCount == 1 ? "" : "s") found and marked inactive"
+                completeMaintenance(
+                    kind: kind,
+                    processed: result.testedSourceCount,
+                    failures: result.missingSourceCount,
+                    result: "Checked \(result.testedSourceCount) files • \(missingDescription) • \(result.restoredSourceCount) restored"
+                )
             case .cleaned(let count):
-                scanStatus = "Cleaned \(count) inactive link\(count == 1 ? "" : "s")."
+                completeMaintenance(
+                    kind: kind,
+                    processed: count,
+                    failures: 0,
+                    result: "Removed \(count) inactive link\(count == 1 ? "" : "s")"
+                )
             case .failure(let message):
                 recordMaintenanceFailure(message)
             }
@@ -422,53 +486,100 @@ final class ScannerAppModel: ObservableObject {
         }
     }
 
-    private func apply(_ update: CatalogScanProgress) {
-        pendingProgress = update
-        guard progressUpdateTask == nil else { return }
-        progressUpdateTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 250_000_000)
-            guard !Task.isCancelled else { return }
-            self?.flushPendingProgress()
+    private func applyMaintenanceProgress(_ update: CatalogMaintenanceProgress) {
+        let kind: ScannerOperationKind = update.operation == .checkLinks ? .checkLinks : .removeLinks
+        operationProgress = ScannerOperationProgress(
+            operation: kind,
+            phase: "maintenance",
+            processed: update.processed,
+            total: update.total,
+            failures: update.failures,
+            detail: update.detail
+        )
+        scanStatus = update.detail
+        if let currentPath = update.currentPath {
+            self.currentPath = (currentPath as NSString).deletingLastPathComponent
+            self.currentFile = (currentPath as NSString).lastPathComponent
         }
     }
 
-    private func flushPendingProgress() {
-        progressUpdateTask = nil
-        guard let update = pendingProgress else { return }
-        pendingProgress = nil
-        applyVisibleProgress(update)
+    private func completeMaintenance(
+        kind: ScannerOperationKind,
+        processed: Int,
+        failures: Int,
+        result: String
+    ) {
+        let completedAt = Date()
+        let telemetry = ScannerOperationTelemetry(
+            operation: kind,
+            startedAt: operationStartedAt ?? completedAt,
+            completedAt: completedAt,
+            processed: processed,
+            total: processed,
+            failures: failures,
+            result: result
+        )
+        completedOperation = telemetry
+        scanStatus = telemetry.statusText
+        operationProgress = nil
     }
 
-    private func flushQueuedProgress() {
-        progressUpdateTask?.cancel()
-        progressUpdateTask = nil
-        guard let update = pendingProgress else { return }
-        pendingProgress = nil
-        applyVisibleProgress(update)
+    private func sampleProgress<Value: Sendable>(
+        from buffer: LatestValueBuffer<Value>,
+        apply: (Value) -> Void
+    ) async {
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: ScannerProgressDelivery.sampleIntervalNanoseconds)
+            guard !Task.isCancelled else { break }
+            if let update = buffer.take() {
+                apply(update)
+            }
+            if buffer.isFinished { break }
+        }
+        if let update = buffer.take() {
+            apply(update)
+        }
     }
 
     private func applyVisibleProgress(_ update: CatalogScanProgress) {
-        progress = update
+        operationProgress = ScannerOperationProgress(
+            operation: .scan,
+            phase: update.phase.rawValue,
+            processed: update.phaseCompleted ?? update.processed,
+            total: update.phaseTotal ?? update.discovered,
+            failures: update.failed,
+            detail: update.detail
+        )
         activeRootID = roots.first(where: { $0.path == update.rootPath })?.id
         if let candidate = update.currentPath {
-            currentPath = (candidate as NSString).deletingLastPathComponent
-            currentFile = (candidate as NSString).lastPathComponent
+            if let separator = candidate.firstIndex(of: "#") {
+                let sourcePath = String(candidate[..<separator])
+                let archiveEntry = String(candidate[candidate.index(after: separator)...])
+                currentPath = (sourcePath as NSString).deletingLastPathComponent
+                currentFile = "\((sourcePath as NSString).lastPathComponent)#\(archiveEntry)"
+            } else {
+                currentPath = (candidate as NSString).deletingLastPathComponent
+                currentFile = (candidate as NSString).lastPathComponent
+            }
         }
         switch update.phase {
         case .preparing: scanStatus = "Preparing catalog…"
         case .discovery: scanStatus = "Discovering supported sources…"
         case .planning: scanStatus = "Discovered \(update.discovered) sources"
-        case .archiveListing, .materialization, .inspection:
-            scanStatus = "Scanning \(update.processed) of \(update.discovered) • \(update.failed) failed"
+        case .archiveListing: scanStatus = "Extracting archives…"
+        case .materialization: scanStatus = "Materializing archive members…"
+        case .inspection: scanStatus = "Inspecting sources…"
         case .persistence:
             scanStatus = "Saved \(update.processed) of \(update.discovered) • \(update.failed) failed"
-        case .publication: scanStatus = "Publishing catalog atomically…"
+        case .publication:
+            currentPath = nil
+            currentFile = nil
+            scanStatus = update.detail ?? "Publishing catalog atomically…"
         case .cleanup: scanStatus = "Cleaning temporary scan files…"
         }
     }
 
     private func finish(_ outcome: ScanOutcome) {
-        flushQueuedProgress()
         isScanning = false
         worker = nil
         scanTask = nil
@@ -477,11 +588,23 @@ final class ScannerAppModel: ObservableObject {
         switch outcome {
         case .success(let results):
             for result in results { writeLastScanLog(rootID: result.root.id, result: result, terminalMessage: nil) }
-            let discovered = results.reduce(0) { $0 + $1.discoveredSourceCount }
-            let tracks = results.reduce(0) { $0 + $1.trackCount }
-            let reused = results.reduce(0) { $0 + $1.reusedSourceCount }
-            let failures = results.flatMap(\.failures)
-            scanStatus = "Complete • \(discovered) sources • \(tracks) tracks • \(reused) reused • \(failures.count) failed"
+            let completedAt = results.compactMap(\.root.lastScanCompletedAt).max() ?? Date()
+            let startedAt = results.compactMap(\.root.lastScanStartedAt).min() ?? completedAt
+            let totalDiscovered = results.reduce(0) { $0 + $1.discoveredSourceCount }
+            let totalFailures = results.reduce(0) { $0 + $1.failures.count }
+            let totalSkipped = results.reduce(0) { $0 + $1.skipped.count }
+            let totalTracks = results.reduce(0) { $0 + $1.trackCount }
+            let telemetry = ScannerOperationTelemetry(
+                operation: .scan,
+                startedAt: operationStartedAt ?? startedAt,
+                completedAt: completedAt,
+                processed: totalDiscovered,
+                total: totalDiscovered,
+                failures: totalFailures,
+                result: "\(totalDiscovered) items • \(totalTracks) tracks • \(totalFailures) failed • \(totalSkipped) skipped"
+            )
+            completedOperation = telemetry
+            scanStatus = telemetry.statusText
         case .cancelled:
             writeLastScanLog(rootID: activeRootID, result: nil, terminalMessage: "Cancelled. Completed checkpoints were retained.")
             scanStatus = "Cancelled. Completed source checkpoints were retained; Scan resumes them."
@@ -493,6 +616,7 @@ final class ScannerAppModel: ObservableObject {
                 scanStatus = "Scan stopped before publication: \(message)"
             }
         }
+        operationProgress = nil
         activeRootID = nil
         validateCatalog()
         completeRequestedCloseIfIdle()
@@ -560,7 +684,8 @@ final class ScannerAppModel: ObservableObject {
 }
 
 struct ScannerWindow: View {
-    @StateObject private var model = ScannerAppModel()
+    @ObservedObject var model: ScannerAppModel
+    @Environment(\.openWindow) private var openWindow
 
     private let windowBackground = Color(red: 30 / 255, green: 30 / 255, blue: 30 / 255)
     private let panelBackground = Color(red: 40 / 255, green: 40 / 255, blue: 40 / 255)
@@ -571,9 +696,7 @@ struct ScannerWindow: View {
                 catalogCard
                 scanPathsCard
                 scannerOptionsCard
-                if model.isBusy || model.progress != nil {
-                    scanStatusCard
-                }
+                scanStatusCard
             }
             .padding(20)
         }
@@ -592,11 +715,11 @@ struct ScannerWindow: View {
             Text("This removes every configured scan path from the catalog. Indexed records stay intact and can be reused when a path is added again.")
         }
         .confirmationDialog(
-            "Clean Links?",
+            "Remove Links?",
             isPresented: $model.showsCleanLinksConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Clean Links", role: .destructive) { model.cleanLinks() }
+            Button("Remove Links", role: .destructive) { model.cleanLinks() }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Moved files' records are retained for fast recognition. Permanently remove dead links from database?")
@@ -667,7 +790,7 @@ struct ScannerWindow: View {
                     .disabled(!model.canScanAll)
                 actionButton("Check Links") { model.checkLinks() }
                     .disabled(model.isBusy || model.roots.isEmpty)
-                actionButton("Clean Links") { model.showsCleanLinksConfirmation = true }
+                actionButton("Remove Links") { model.showsCleanLinksConfirmation = true }
                     .disabled(model.isBusy || !model.hasInactiveLinks)
             }
         }
@@ -675,42 +798,106 @@ struct ScannerWindow: View {
 
     private var scannerOptionsCard: some View {
         sectionCard(title: "Scanner Options") {
-            Toggle(isOn: $model.deepScan) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Deep Scan")
-                        .foregroundStyle(.white)
-                    Text("Unzip, read metadata for all files.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+            HStack(alignment: .center, spacing: 16) {
+                Toggle(isOn: $model.deepScan) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Deep Scan")
+                            .foregroundStyle(.white)
+                        Text("Unzip, read metadata for all files.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
                 }
-            }
-            .toggleStyle(.checkbox)
-            .disabled(model.isBusy)
+                .toggleStyle(.checkbox)
+                .disabled(model.isBusy)
 
+                Spacer(minLength: 16)
+
+                Button { openWindow(id: "options") } label: {
+                    Image(systemName: "gearshape")
+                }
+                .help("Scanner Options")
+                .accessibilityLabel("Scanner Options")
+                .disabled(model.isBusy)
+            }
         }
     }
 
     private var scanStatusCard: some View {
         sectionCard(title: "Scan Status") {
-            statusField(title: "Current Activity", value: model.scanStatus)
-            statusField(title: "File Path", value: model.currentPath ?? "Preparing scan path…")
-            statusField(title: "File Name", value: model.currentFile ?? model.scanStatus)
-            if let fraction = model.progressFraction {
-                ProgressView(value: fraction)
-                    .progressViewStyle(.linear)
-                    .frame(maxWidth: .infinity)
-                    .accessibilityLabel("Scan progress")
-            } else if model.isBusy {
-                ProgressView()
-                    .progressViewStyle(.linear)
-                    .frame(maxWidth: .infinity)
-                    .accessibilityLabel("Scan progress")
+            if !model.isBusy, let completedOperation = model.completedOperation {
+                HStack(alignment: .center, spacing: 9) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.green)
+                    Text(completedOperation.statusText)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(completedOperation.statusText)
+            } else {
+                scanReadout
+            }
+            if model.isBusy {
+                Group {
+                    if let fraction = model.progressFraction {
+                        ProgressView(value: fraction)
+                            .progressViewStyle(.linear)
+                    } else {
+                        ProgressView()
+                            .progressViewStyle(.linear)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityLabel("Scan progress")
+                .transition(.move(edge: .top).combined(with: .opacity))
+                // A short ease-out gives the bar the requested simple
+                // exponential-style decay without animating the data area.
+                .animation(.easeOut(duration: 0.2), value: model.isBusy)
             }
             if model.isScanning {
-                Button("Cancel Scan", role: .cancel) { model.cancelScan() }
+                Button(role: .cancel) { model.cancelScan() } label: {
+                    Text("Cancel Scan")
+                        .frame(maxWidth: .infinity)
+                }
                     .frame(maxWidth: .infinity)
                     .keyboardShortcut(.cancelAction)
             }
+        }
+    }
+
+    private var scanReadout: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Current Scan")
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundStyle(.secondary)
+            Text(model.scanStatus)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            VStack(alignment: .leading, spacing: 2) {
+                monoStatusField(
+                    title: " Items:",
+                    value: model.operationProgress.map { progress in
+                        if let total = progress.total { return "\(progress.processed) / \(total)" }
+                        return String(progress.processed)
+                    } ?? "0 / 0"
+                )
+                monoStatusField(
+                    title: " Fails:",
+                    value: model.operationProgress.map { String($0.failures) } ?? "0"
+                )
+            }
+            if model.isBusy {
+                Text("Current File")
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                monoStatusField(title: " Path:", value: model.currentPath ?? "—")
+                monoStatusField(title: " File:", value: model.currentFile ?? "—")
+            }
+
         }
     }
 
@@ -867,6 +1054,20 @@ struct ScannerWindow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private func monoStatusField(title: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(title)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private func sectionCard<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(title)
@@ -967,6 +1168,7 @@ private struct WindowCloseGuard: NSViewRepresentable {
 @main
 struct MediaScannerApplication: App {
     @NSApplicationDelegateAdaptor(MediaScannerApplicationDelegate.self) private var applicationDelegate
+    @StateObject private var model = ScannerAppModel()
 
     init() {
         if let iconURL = Bundle.main.url(forResource: "app-icon", withExtension: "png"),
@@ -976,7 +1178,31 @@ struct MediaScannerApplication: App {
     }
 
     var body: some Scene {
-        WindowGroup("ScanSong") { ScannerWindow() }
+        WindowGroup("ScanSong") { ScannerWindow(model: model) }
             .defaultSize(width: 840, height: 700)
+            .commands {
+                ScannerCommands()
+            }
+
+        Window("Options", id: "options") {
+            ScannerOptionsView(model: model)
+        }
+        .windowStyle(.titleBar)
+        .windowToolbarStyle(.unified)
+        .defaultSize(width: 720, height: 520)
+        .windowResizability(.contentMinSize)
+    }
+}
+
+private struct ScannerCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(replacing: .appSettings) {
+            Button("Options…") {
+                openWindow(id: "options")
+            }
+            .keyboardShortcut(",", modifiers: .command)
+        }
     }
 }
