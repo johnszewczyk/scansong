@@ -3,6 +3,13 @@ import Foundation
 struct ArchiveMemberEnumerator {
     private let fileManager: FileManager
 
+    // These files describe or feed a playable member but are not playable
+    // sources themselves. They must stay out of the unrecognized inventory so
+    // archives do not produce one diagnostic per decoder sidecar.
+    private static let supportFileExtensions: Set<String> = [
+        "bd", "gsflib", "psflib", "qsflib", "sbb", "txth", "txt"
+    ]
+
     init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
     }
@@ -58,7 +65,12 @@ struct ArchiveMemberEnumerator {
                 skipped.append(.init(entryPath: entry, extensionName: extensionName, reason: .explicitlyIgnored))
                 continue
             }
-            guard let route = registry.route(for: fileURL.pathExtension, archiveMember: true) else { continue }
+            guard let route = registry.route(for: fileURL.pathExtension, archiveMember: true) else {
+                if !extensionName.isEmpty && !Self.supportFileExtensions.contains(extensionName) {
+                    skipped.append(.init(entryPath: entry, extensionName: extensionName, reason: .unsupportedFormat))
+                }
+                continue
+            }
             members.append(.init(
                 entryPath: entry,
                 fileURL: fileURL,

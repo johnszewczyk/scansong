@@ -59,7 +59,7 @@ public struct ScanCandidate: Hashable, Sendable {
     }
 }
 
-public enum ScanSkipReason: String, Codable, Sendable {
+public enum ScanSkipReason: String, Codable, Sendable, Hashable {
     case explicitlyIgnored = "explicitIgnore"
     case unsupportedFormat = "unsupportedFormat"
 }
@@ -170,7 +170,7 @@ public struct ScanFailure: Sendable {
         self.fingerprint = fingerprint
         self.route = route
         self.stage = stage
-        self.message = message
+        self.message = ScanDiagnosticSanitizer.sanitize(message)
     }
 }
 

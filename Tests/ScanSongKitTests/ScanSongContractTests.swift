@@ -124,6 +124,29 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
     #expect(candidates.map(\.sourceURL.lastPathComponent) == ["Game.strm"])
 }
 
+@Test func archiveEnumerationReportsUnknownMembersWithoutSupportFileNoise() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("ScanSong-archive-members-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try Data([0]).write(to: root.appendingPathComponent("notes.xyz"))
+    try Data([0]).write(to: root.appendingPathComponent("music.qsflib"))
+    try Data([0]).write(to: root.appendingPathComponent("music.sbb"))
+    try Data([0]).write(to: root.appendingPathComponent("ReadMe.TXT"))
+    try Data([0]).write(to: root.appendingPathComponent("extensionless"))
+
+    let listing = try ArchiveMemberEnumerator().enumerate(
+        payloadURL: root,
+        registry: BuiltInScannerPlugins.registry,
+        ignoredFileExtensions: [],
+        dependencyPaths: []
+    )
+
+    #expect(listing.members.isEmpty)
+    #expect(listing.skipped.map(\.entryPath) == ["notes.xyz"])
+    #expect(listing.skipped.first?.reason == .unsupportedFormat)
+}
+
 @Test func sidHeaderReaderPublishesCommodore64Metadata() async throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("ScanSong-sid-\(UUID().uuidString)", isDirectory: true)
@@ -487,6 +510,159 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
     #expect(discovered.last?.route?.structurePolicy == .enumerate)
 }
 
+@Test(
+    "JoshW Resident Evil 2 tar.zst scans all PSF members and reports progress",
+    .enabled(
+        if: ProcessInfo.processInfo.environment["SCANSONG_RE2_ARCHIVE"] != nil,
+        "Set SCANSONG_RE2_ARCHIVE to run the JoshW Resident Evil 2 archive check."
+    )
+)
+func joshWResidentEvil2ArchiveScansThroughTarZstandard() async throws {
+    let archivePath = try #require(ProcessInfo.processInfo.environment["SCANSONG_RE2_ARCHIVE"])
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("ScanSong-re2-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let archiveURL = root.appendingPathComponent("Resident Evil 2.tar.zst")
+    try FileManager.default.copyItem(at: URL(fileURLWithPath: archivePath), to: archiveURL)
+
+    let progress = ProgressCapture()
+    let databaseURL = root.appendingPathComponent("Library.sqlite")
+    let result = try await CatalogScanner(
+        databaseURL: databaseURL,
+        inspectionPermits: 4,
+        archivePipelineLimit: 1
+    ).scan(rootURL: root, mode: .newScan) { progress.append($0) }
+
+    #expect(result.discoveredSourceCount == 1)
+    #expect(result.trackCount == 75)
+    #expect(result.failures.isEmpty)
+    #expect(result.skipped.isEmpty)
+
+    let updates = progress.values()
+    #expect(updates.contains { $0.phase == .archiveListing })
+    #expect(updates.contains { $0.phase == .materialization })
+    #expect(updates.contains { $0.phase == .persistence && $0.processed == 1 && $0.discovered == 1 })
+    #expect(updates.last?.processed == 1)
+    #expect(updates.last?.discovered == 1)
+}
+
+@Test(
+    "JoshW Dungeons and Dragons QSF archive scans all miniQSF members",
+    .enabled(
+        if: ProcessInfo.processInfo.environment["SCANSONG_QSF_ARCHIVE"] != nil,
+        "Set SCANSONG_QSF_ARCHIVE to run the archive-backed QSF scanner check."
+    )
+)
+func joshWQSFArchiveScansAllMiniQSFMembers() async throws {
+    let archivePath = try #require(ProcessInfo.processInfo.environment["SCANSONG_QSF_ARCHIVE"])
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("ScanSong-qsf-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let archiveURL = root.appendingPathComponent("Dungeons & Dragons QSF.tar.zst")
+    try FileManager.default.copyItem(at: URL(fileURLWithPath: archivePath), to: archiveURL)
+
+    let result = try await CatalogScanner(
+        databaseURL: root.appendingPathComponent("Library.sqlite"),
+        inspectionPermits: 4,
+        archivePipelineLimit: 1
+    ).scan(rootURL: root, mode: .newScan)
+
+    #expect(result.discoveredSourceCount == 1)
+    #expect(result.trackCount == 39)
+    #expect(result.failures.isEmpty)
+    #expect(result.skipped.isEmpty)
+}
+
+@Test(
+    "JoshW Resident Evil 2 GameCube archive resolves underscore TXTH aliases",
+    .enabled(
+        if: ProcessInfo.processInfo.environment["SCANSONG_RE2_GAMECUBE_ARCHIVE"] != nil,
+        "Set SCANSONG_RE2_GAMECUBE_ARCHIVE to run the archive-backed GameCube LDAT check."
+    )
+)
+func joshWResidentEvil2GameCubeArchiveResolvesTXTHAliases() async throws {
+    let archivePath = try #require(ProcessInfo.processInfo.environment["SCANSONG_RE2_GAMECUBE_ARCHIVE"])
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("ScanSong-re2-gc-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let archiveURL = root.appendingPathComponent("Resident Evil 2 GameCube.7z")
+    try FileManager.default.copyItem(at: URL(fileURLWithPath: archivePath), to: archiveURL)
+
+    let result = try await CatalogScanner(
+        databaseURL: root.appendingPathComponent("Library.sqlite"),
+        inspectionPermits: 4,
+        archivePipelineLimit: 1
+    ).scan(rootURL: root, mode: .newScan)
+
+    #expect(result.discoveredSourceCount == 1)
+    #expect(result.failures.isEmpty)
+    #expect(result.trackCount >= 131)
+}
+
+@Test func scanLogFormatsDiagnosticsWithoutExpandingArchiveInventories() {
+    let fingerprint = ScanFingerprint(fileSize: 1, modifiedAt: .distantPast)
+    let archivePath = "/library/NeuroDancer.zip"
+    let archiveFailure = ScanFailure(
+        identity: ScanItemIdentity(rootID: 1, path: archivePath, archiveEntry: "music/bad.spc"),
+        fingerprint: fingerprint,
+        route: nil,
+        stage: .metadata,
+        message: "decoder failed"
+    )
+    let skippedArchiveMembers = [
+        ScanSkippedFile(
+            identity: ScanItemIdentity(rootID: 1, path: archivePath, archiveEntry: "music/one.sgc"),
+            extensionName: "sgc",
+            reason: .explicitlyIgnored
+        ),
+        ScanSkippedFile(
+            identity: ScanItemIdentity(rootID: 1, path: archivePath, archiveEntry: "music/two.sgc"),
+            extensionName: "sgc",
+            reason: .explicitlyIgnored
+        )
+    ]
+    let lines = ScanLogFormatter.lines(
+        status: "complete",
+        summary: "4 discovered, 2 tracks, 1 reused, 2 skipped",
+        rootPath: "/library",
+        failures: [archiveFailure],
+        skipped: skippedArchiveMembers + [
+            ScanSkippedFile(
+                identity: ScanItemIdentity(rootID: 1, path: "/library/notes.xyz", archiveEntry: nil),
+                extensionName: "xyz",
+                reason: .unsupportedFormat
+            )
+        ]
+    )
+
+    #expect(lines[0] == "status | detail | path")
+    #expect(lines.contains("archive-error | metadata: decoder failed | /library/NeuroDancer.zip#music/bad.spc"))
+    #expect(lines.contains("ignored | explicit ignore (.sgc, 2 archive members) | /library/NeuroDancer.zip"))
+    #expect(lines.contains("unrecognized | unsupported format (.xyz) | /library/notes.xyz"))
+    #expect(!lines.contains(where: { $0.contains("music/one.sgc") || $0.contains("music/two.sgc") }))
+
+    let scratchFailure = ScanFailure(
+        identity: ScanItemIdentity(rootID: 1, path: "/library/Silent Hill HD Collection.tar.zst", archiveEntry: "sh3_bgm_02.hd"),
+        fingerprint: fingerprint,
+        route: nil,
+        stage: .metadata,
+        message: "failed opening /private/var/folders/example/T/ScanSong-ScanScratch/CB56DFBC-58F8-4BDC-87C0-9F0E79FFBA63/payload/sh3_bgm_02.hd"
+    )
+    #expect(scratchFailure.message == "failed opening sh3_bgm_02.hd")
+    let scratchLines = ScanLogFormatter.lines(
+        status: "complete",
+        summary: "1 discovered, 0 tracks, 0 reused, 1 failed",
+        rootPath: "/library",
+        failures: [scratchFailure],
+        skipped: []
+    )
+    #expect(scratchLines.contains("archive-error | metadata: failed opening sh3_bgm_02.hd | /library/Silent Hill HD Collection.tar.zst#sh3_bgm_02.hd"))
+    #expect(!scratchLines.contains(where: { $0.contains("ScanSong-ScanScratch") || $0.contains("/private/var") }))
+}
+
 @Test func sharedLifecycleAndAccumulatorUseOneCrossHostVocabulary() async throws {
     #expect(ScanLifecyclePhase.infer(from: "Discovering files") == .discovery)
     #expect(ScanLifecyclePhase.infer(from: "Publishing scan") == .publication)
@@ -520,6 +696,19 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
 
 private enum SchedulerTestError: Error {
     case expected
+}
+
+private final class ProgressCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var captured: [CatalogScanProgress] = []
+
+    func append(_ update: CatalogScanProgress) {
+        lock.withLock { captured.append(update) }
+    }
+
+    func values() -> [CatalogScanProgress] {
+        lock.withLock { captured }
+    }
 }
 
 private func createCanonicalCatalog(at url: URL) throws {

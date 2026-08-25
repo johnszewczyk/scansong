@@ -542,11 +542,12 @@ final class ScannerAppModel: ObservableObject {
     }
 
     private func applyVisibleProgress(_ update: CatalogScanProgress) {
+        let isPublication = update.phase == .publication
         operationProgress = ScannerOperationProgress(
             operation: .scan,
             phase: update.phase.rawValue,
-            processed: update.phaseCompleted ?? update.processed,
-            total: update.phaseTotal ?? update.discovered,
+            processed: isPublication ? (update.phaseCompleted ?? update.processed) : update.processed,
+            total: isPublication ? (update.phaseTotal ?? update.discovered) : update.discovered,
             failures: update.failed,
             detail: update.detail
         )

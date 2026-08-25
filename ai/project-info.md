@@ -50,11 +50,16 @@ reported as an archive-member failure instead of being hidden.
 The following previously failing vgmstream routes are now wired through the
 scanner's bundled inspector: `.strm`, `.ahx`, `.bik`, `.bika`, `.msf`, `.xmd`,
 `.txtp`, and `.hd`/`.hbd`/`.iecs`. TXTP dependency aliases are materialized
-inside the extracted archive before inspection. Archive inspection keeps valid
+inside the extracted archive before inspection, including underscore-prefixed
+TXTH aliases such as `_.ldat.txth`. Archive inspection keeps valid
 members when another member fails, and records the failed member in the scan
-inventory and result log. Archive extraction is serialized to one payload at a
-time, TAR.ZST extraction avoids a second full temporary TAR, and stale scratch
-roots older than one day are removed when extraction starts.
+inventory and result log. Archive members with genuinely unknown extensions are
+retained as grouped `unrecognized` diagnostics; known decoder sidecars and
+archive documentation remain quiet. Archive extraction is serialized to one
+payload at a time, TAR.ZST uses a streaming `zstd -dc` to `tar` pipeline rather
+than a second full temporary TAR, and stale scratch roots older than one day
+are removed when extraction starts. Disposable scratch prefixes are removed
+from failure messages before catalog persistence as well as log rendering.
 
 ## Current failure boundary
 
@@ -74,11 +79,12 @@ collapsed into one ignored-format bucket:
   not evidence that the files are unsupported; keep it visible while the
   matching companion-bank layout is investigated.
 
-The last-result scan log includes `skip:` lines for files omitted by an
-explicit ignored-type policy. Unrecognized unrelated files remain outside the
-scan candidate set without being emitted individually during the operation;
-routed files that cannot be opened or decoded continue to produce `failure:`
-lines.
+The last-result scan log uses uniform `status | detail | path` columns. It
+records actual failures, including the exact `archive#member` path for an
+archive error. Successful archive members are never listed; skipped archive
+members are grouped by archive and extension. Unknown archive members use
+`unrecognized` rows without becoming catalog candidates, while known support
+files and extensionless archive material remain quiet.
 Scan, Check Links, and Remove Links share one operation telemetry model in the
 native UI: item progress, failure/missing counts, elapsed `HH:MM`/`HH:MM:SS`,
 and completion time are reported uniformly.

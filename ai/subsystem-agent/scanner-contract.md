@@ -83,16 +83,18 @@
   extensions (`.sgc`, NCSF family, Doom `.mus`, and playlist `.m3u` by default).
   The policy is visible and editable under Options > File Types and is passed to
   both loose-file discovery and archive-member routing.
-- Discovery does not retain or emit a record for every unrelated file without a
-  scanner route. Only files matching an explicitly ignored policy are retained
-  in the optional post-operation skip inventory; unsupported routed files and
-  corrupt files remain distinct failure cases.
+- Discovery does not invent playable rows for unrelated files without a scanner
+  route. Archive members with an unknown extension are retained in the optional
+  post-operation skip inventory as unsupported-format diagnostics; known decoder
+  support/dependency sidecars remain silent, and corrupt routed files remain
+  distinct failure cases.
 - Ignoring an extension is not a corruption filter. Supported routed members are
   always inspected; malformed members produce retained `ScanFailure` rows and
   scan-log entries. An archive may publish valid sibling tracks while preserving
   the failed member for retry and diagnosis.
-- TAR.ZST is fully decompressed to a bounded temporary TAR before listing and
-  extraction; the scanner never closes a producer pipe early.
+- TAR.ZST listing and extraction stream `zstd -dc` into `tar`; ScanSong does not
+  create a second full temporary TAR and does not close the producer pipe before
+  the consumer finishes.
 - Standard output contains JSONL events only, with explicit contract name,
   version, and monotonically increasing sequence. Progress diagnostics are
   rate-limited to phase changes, phase completion, or one event per second so
@@ -116,9 +118,12 @@
   cancellation, preserving resume; record order stays deterministic.
 - Archive extraction itself is serialized to one payload at a time. The
   per-archive expanded-byte limit therefore cannot multiply across the source
-  pipeline. TAR.ZST archives are listed and extracted directly by `tar` without
-  first creating a second full `expanded.tar`; stale scanner scratch roots older
-  than one day are reaped when a new extraction begins.
+  pipeline. TAR.ZST archives use a cancellation-safe `zstd -dc` to `tar`
+  pipeline for listing and extraction, without first creating a second full
+  `expanded.tar`; stale scanner scratch roots older than one day are reaped
+  when a new extraction begins. Extracted underscore aliases such as
+  `_.ldat.txth` are normalized to the decoder's canonical `.ldat.txth` name
+  inside disposable scratch storage.
 - Archive member inspection runs under the shared bounded permit pool
   (`ScanResourceScheduler`) so subprocess adapters (vgmstream, Highly Complete)
   run concurrently while records keep deterministic member order. Loose
@@ -152,8 +157,9 @@
   Dependency-enumerated formats without their own plugin fail explicitly.
 - GameCube intake is fixture-backed: primary DSP, ADP, AGSC, H4M, LDAT,
   LOGG, RSF, THP, and TXTP members route through the bundled vgmstream
-  inspector. Extracted TXTH and bank/data files remain dependencies and never
-  become duplicate catalog rows.
+  inspector. Extracted TXTH files, including archive-specific `_.ext.txth`
+  aliases normalized to `.<ext>.txth`, and bank/data files remain dependencies
+  and never become duplicate catalog rows.
 - When a TXTP references an otherwise playable stream, the extracted stream is
   retained for decoder access but suppressed as a separate catalog member;
   the TXTP-authored mixing, subsong, and loop structure is authoritative.

@@ -194,18 +194,21 @@ public final class CatalogScanner: @unchecked Sendable {
             let outcomes = try await inspectPending(
                 pending,
                 pipelineLimit: archivePipelineLimit,
-                progress: { [progress, rootPath = root.path, discovered, inspectionProcessed, inspectionFailed] phase, currentPath, detail, phaseCompleted, phaseTotal in
+                progress: { [progress, rootPath = root.path, discovered, inspectionProcessed, inspectionFailed] phase, currentPath, detail, phaseCompleted, _ in
+                    let globalPhaseCompleted = phaseCompleted.map {
+                        min(discovered, inspectionProcessed + $0)
+                    }
                     progress?(CatalogScanProgress(
                         phase: phase,
                         rootPath: rootPath,
                         currentPath: currentPath,
                         discovered: discovered,
-                        processed: phaseCompleted.map { min(discovered, inspectionProcessed + $0) } ?? inspectionProcessed,
-                        successful: inspectionProcessed - inspectionFailed,
+                        processed: globalPhaseCompleted ?? inspectionProcessed,
+                        successful: (globalPhaseCompleted ?? inspectionProcessed) - inspectionFailed,
                         failed: inspectionFailed,
                         detail: detail,
-                        phaseCompleted: phaseCompleted,
-                        phaseTotal: phaseTotal
+                        phaseCompleted: globalPhaseCompleted,
+                        phaseTotal: phaseCompleted == nil ? nil : discovered
                     ))
                 }
             )

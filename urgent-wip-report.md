@@ -1,6 +1,10 @@
 # ScanSong plugin ownership
 
-## Current State
+## Historical State (snapshot from 2026-08-23)
+
+This note records the plugin-boundary state at the time of the snapshot. It is
+not the current test count or a release-readiness report; use the live ScanSong
+test suite and scanner contract for current verification.
 
 - ScanSong is the ScanSong app and remains the catalog writer.
 - The Highly Complete inspection executable is now built from `../VGMBoy` as
@@ -50,9 +54,10 @@
 - VGMBoy native dependencies and scanner plugins are keyed by source revision,
   dirty diff, build scripts, patches, compiler, and CMake version. A complete
   warm dependency pass reused all seven products and packaged copies in 0.6 s.
-- ScanSong passed all 25 tests, including the archive-backed GameCube inspector
-  timing fixture. Its clean app bundle built, signed, and passed strict deep
-  signature verification.
+- At the time of this snapshot, ScanSong passed 25 tests, including the
+  archive-backed GameCube inspector timing fixture. Later scanner repairs and
+  regression coverage have changed the live test count; its clean app bundle
+  and current verification must be assessed separately.
 - VGMBoy's archive-backed GameCube playback test opened every admitted fixture
   and rendered non-silent PCM. The separate AAC export test currently fails in
   AudioToolbox with `fmt?` (`1718449215`); do not treat that unrelated failure

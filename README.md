@@ -45,9 +45,13 @@ only inactive catalog records after confirmation; it never deletes media files.
 Removing a scan path only detaches it and retains its records.
 
 Each path shows its last scan time, source count, active track count, and issue
-count. Its last-result log uses `status: result: file` rows, with the variable
-file path last. Path status is grey before a
-completed scan, green when all supported sources completed cleanly, yellow when
+count. Its last-result log uses uniform `status | detail | path` rows. It records
+the root summary, actual failures, and compact ignored/unrecognized diagnostics;
+successful archive members are never expanded into a file list, while an
+archive-member failure keeps its `archive#member` path. Scanner-owned scratch
+prefixes are removed from diagnostic details so the archive member path remains
+the useful identifier. Path status is grey before a completed scan, green when
+all supported sources completed cleanly, yellow when
 failed or inactive sources need attention, and red when a completed scan has no
 playable files.
 

@@ -32,8 +32,12 @@
 
 ## Scan Results
 
-- The last-result log has a fixed `status: result: file` layout; the variable
-  path is always last. Scan Status is the only in-window summary.
+- The last-result log has fixed `status | detail | path` columns. Actual
+  archive failures retain the `archive#member` path; successful members are
+  never listed, and skipped archive members are grouped by archive and
+  extension. Scan Status is the only in-window summary.
+- Scanner-owned extraction scratch prefixes are removed from diagnostic details;
+  the archive/member path remains the stable identifier.
 - During Scan, Check Links, or Remove Links, Scan Status shows only sampled
   aggregate progress and failure counts. Operation callbacks are retained as a
   single latest value and sampled by the UI every 250 ms; no callback can pace
@@ -57,8 +61,10 @@
   supported formats remain active so malformed files still appear in the scan
   result and last-result log.
 - The ignore selection is persisted in ScanSong preferences. Explicitly ignored
-  files are recorded in the post-operation scan log; unrelated files without a
-  scanner route are excluded from candidates without per-file output.
+  files are recorded in the post-operation scan log. Archive members without a
+  scanner route are grouped as `unrecognized` diagnostics unless they are known
+  decoder support files, archive documentation, or extensionless material; none
+  become playable candidates.
 
 ## Files
 

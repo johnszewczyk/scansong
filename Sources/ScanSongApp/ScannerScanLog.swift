@@ -55,14 +55,13 @@ enum ScannerScanLogStore {
         } else {
             resultText = "\(tally.sourceCount) files, \(root.lastScanTrackCount) tracks"
         }
-        var lines = ["status: result: file", "\(status): \(resultText): \(root.path)"]
-        lines.append(contentsOf: (result?.failures ?? []).map {
-            let path = $0.identity.path + ($0.identity.archiveEntry.map { "#\($0)" } ?? "")
-            return "failure: \($0.stage.rawValue) — \($0.message): \(path)"
-        })
-        lines.append(contentsOf: (result?.skipped ?? []).map {
-            "skip: \($0.reason.rawValue) — .\($0.extensionName): \($0.identityDescription)"
-        })
+        let lines = ScanLogFormatter.lines(
+            status: status,
+            summary: resultText,
+            rootPath: root.path,
+            failures: result?.failures ?? [],
+            skipped: result?.skipped ?? []
+        )
 
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
