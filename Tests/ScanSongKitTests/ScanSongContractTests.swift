@@ -179,6 +179,155 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
     #expect(metadata.playLengthMs == 30_000)
 }
 
+@Test func spcReaderParsesBinaryID666LengthAndFade() throws {
+    var data = makeSPCFile(id666Flag: 0x1A)
+    writeBytes(&data, at: 0x2E, value: "Binary Song")
+    writeBytes(&data, at: 0x4E, value: "Binary Game")
+    writeBytes(&data, at: 0xB0, value: "Binary Artist")
+
+    // Binary ID666: seconds at 0xA9 as LE16 and fade milliseconds at 0xAC as LE24.
+    data[0xA9] = 30
+    data[0xAA] = 0
+    data[0xAB] = 0
+    data[0xAC] = 0x88
+    data[0xAD] = 0x13
+    data[0xAE] = 0
+    data[0xAF] = 0
+
+    let fileURL = try writeSPCTestFile(data, name: "binary.spc")
+    defer { try? FileManager.default.removeItem(at: fileURL) }
+    let metadata = try #require(try SPCMetadataReader.read(fileURL: fileURL))
+
+    #expect(metadata.song == "Binary Song")
+    #expect(metadata.game == "Binary Game")
+    #expect(metadata.author == "Binary Artist")
+    #expect(metadata.playLengthMs == 30_000)
+    #expect(metadata.fadeLengthMs == 5_000)
+}
+
+@Test func spcReaderParsesTextID666LengthAndFade() throws {
+    var data = makeSPCFile(id666Flag: 0x1A)
+    writeBytes(&data, at: 0x2E, value: "Text Song")
+    writeBytes(&data, at: 0x9E, value: "01/02/2003")
+    writeBytes(&data, at: 0xA9, value: "045")
+    writeBytes(&data, at: 0xAC, value: "00600")
+    writeBytes(&data, at: 0xB1, value: "Text Artist")
+
+    let fileURL = try writeSPCTestFile(data, name: "text.spc")
+    defer { try? FileManager.default.removeItem(at: fileURL) }
+    let metadata = try #require(try SPCMetadataReader.read(fileURL: fileURL))
+
+    #expect(metadata.song == "Text Song")
+    #expect(metadata.author == "Text Artist")
+    #expect(metadata.playLengthMs == 45_000)
+    #expect(metadata.fadeLengthMs == 600)
+}
+
+@Test func spcReaderAggregatesXID6SegmentsAndSkipsUnknownItems() throws {
+    var data = makeSPCFile(id666Flag: 0x27)
+    data.append(contentsOf: makeXID6Chunk(items: [
+        makeXID6Item(id: 0x02, type: 1, payload: Array("xID6 Game".utf8)),
+        makeXID6Item(id: 0x01, type: 1, payload: Array("xID6 Song".utf8)),
+        makeXID6Item(id: 0x03, type: 1, payload: Array("xID6 Artist".utf8)),
+        makeXID6Item(id: 0x55, type: 2, payload: [0xAA, 0xBB]),
+        makeXID6Item(id: 0x30, type: 4, payload: littleEndianBytes(128_000)), // 2 seconds
+        makeXID6Item(id: 0x31, type: 4, payload: littleEndianBytes(192_000)), // 3 seconds
+        makeXID6Item(id: 0x32, type: 4, payload: littleEndianBytes(256_000)), // 4 seconds
+        makeXID6Item(id: 0x33, type: 4, payload: littleEndianBytes(320_000)), // 5 seconds
+        makeXID6Item(id: 0x35, type: 0, payload: [2, 0])
+    ]))
+
+    let fileURL = try writeSPCTestFile(data, name: "xid6.spc")
+    defer { try? FileManager.default.removeItem(at: fileURL) }
+    let metadata = try #require(try SPCMetadataReader.read(fileURL: fileURL))
+
+    #expect(metadata.song == "xID6 Song")
+    #expect(metadata.game == "xID6 Game")
+    #expect(metadata.author == "xID6 Artist")
+    #expect(metadata.introLengthMs == 2_000)
+    #expect(metadata.loopLengthMs == 3_000)
+    #expect(metadata.playLengthMs == 12_000) // intro + loop * 2 + end
+    #expect(metadata.fadeLengthMs == 5_000)
+}
+
+@Test(
+    "Archive-backed SPC fixtures publish native lengths",
+    .enabled(
+        if: ProcessInfo.processInfo.environment["SCANSONG_SPC_FIXTURES"] != nil,
+        "Set SCANSONG_SPC_FIXTURES to run the archive-backed SPC metadata check."
+    )
+)
+func spcFixturesPublishNativeLengths() async throws {
+    let rootPath = try #require(ProcessInfo.processInfo.environment["SCANSONG_SPC_FIXTURES"])
+    let route = try #require(BuiltInScannerPlugins.registry.route(pathExtension: "spc"))
+    let handler = try #require(BuiltInFormatInspectors.registry.handler(for: route))
+    let expectedLengths: [String: Int] = ["ar-01.spc": 62_000, "ar-02.spc": 83_000, "ar-12.spc": 6_000]
+
+    for (name, expectedLength) in expectedLengths {
+        let fixture = URL(fileURLWithPath: rootPath).appendingPathComponent(name)
+        let inspection = try await handler.inspect(fileURL: fixture, route: route)
+        let metadata = try #require(inspection.tracks.first?.metadata)
+        #expect(metadata.playLengthMs == expectedLength, Comment(rawValue: name))
+    }
+}
+
+@Test func catalogScannerPersistsTheNativeSPCPlayLength() async throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("ScanSong-spc-catalog-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let root = directory.appendingPathComponent("Library", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+    var data = makeSPCFile(id666Flag: 0x1A)
+    writeBytes(&data, at: 0x2E, value: "Stored SPC")
+    data[0xA9] = 62
+    data[0xAA] = 0
+    data[0xAB] = 0
+    try data.write(to: root.appendingPathComponent("Stored.spc"))
+
+    let databaseURL = directory.appendingPathComponent("Library.sqlite")
+    let result = try await CatalogScanner(databaseURL: databaseURL).scan(rootURL: root, mode: .newScan)
+    #expect(result.trackCount == 1)
+    #expect(result.failures.isEmpty)
+
+    var database: OpaquePointer?
+    #expect(sqlite3_open_v2(databaseURL.path, &database, SQLITE_OPEN_READONLY, nil) == SQLITE_OK)
+    let row = try querySingleRow(
+        database: try #require(database),
+        sql: "SELECT play_length_ms, fade_length_ms FROM track_metadata LIMIT 1;"
+    )
+    sqlite3_close(database)
+    #expect(row == ["62000", "0"])
+}
+
+@Test func multiRootScanPublishesOneStableSourceTotal() async throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("ScanSong-multi-root-progress-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let firstRoot = directory.appendingPathComponent("First", isDirectory: true)
+    let secondRoot = directory.appendingPathComponent("Second", isDirectory: true)
+    try FileManager.default.createDirectory(at: firstRoot, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: secondRoot, withIntermediateDirectories: true)
+    try makeSPCFile(id666Flag: 0x1A).write(to: firstRoot.appendingPathComponent("First.spc"))
+    try makeSPCFile(id666Flag: 0x1A).write(to: secondRoot.appendingPathComponent("Second.spc"))
+
+    let progress = ProgressCapture()
+    let databaseURL = directory.appendingPathComponent("Library.sqlite")
+    let results = try await CatalogScanner(databaseURL: databaseURL).scan(
+        rootURLs: [firstRoot, secondRoot],
+        mode: .newScan,
+        progress: progress.append
+    )
+    #expect(results.count == 2)
+    #expect(results.allSatisfy { $0.trackCount == 1 })
+
+    let updates = progress.values()
+    #expect(updates.contains { $0.phase == .planning && $0.discovered == 2 && $0.processed == 0 })
+    #expect(updates.filter { $0.phase != .discovery }.allSatisfy { $0.discovered == 2 })
+    #expect(updates.last?.discovered == 2)
+    #expect(updates.last?.processed == 2)
+}
+
 @Test func dryRunReportsTypedRoutesWithoutWritingADataStore() throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("ScanSong-probe-\(UUID().uuidString)", isDirectory: true)
@@ -639,9 +788,10 @@ func joshWResidentEvil2GameCubeArchiveResolvesTXTHAliases() async throws {
     )
 
     #expect(lines[0] == "status | detail | path")
-    #expect(lines.contains("archive-error | metadata: decoder failed | /library/NeuroDancer.zip#music/bad.spc"))
-    #expect(lines.contains("ignored | explicit ignore (.sgc, 2 archive members) | /library/NeuroDancer.zip"))
-    #expect(lines.contains("unrecognized | unsupported format (.xyz) | /library/notes.xyz"))
+    #expect(lines[1] == "complete | 4 discovered, 2 tracks, 1 reused, 2 skipped | .")
+    #expect(lines.contains("archive-error | metadata: decoder failed | NeuroDancer.zip#music/bad.spc"))
+    #expect(lines.contains("ignored | explicit ignore (.sgc, 2 archive members) | NeuroDancer.zip"))
+    #expect(lines.contains("unrecognized | unsupported format (.xyz) | notes.xyz"))
     #expect(!lines.contains(where: { $0.contains("music/one.sgc") || $0.contains("music/two.sgc") }))
 
     let scratchFailure = ScanFailure(
@@ -659,8 +809,24 @@ func joshWResidentEvil2GameCubeArchiveResolvesTXTHAliases() async throws {
         failures: [scratchFailure],
         skipped: []
     )
-    #expect(scratchLines.contains("archive-error | metadata: failed opening sh3_bgm_02.hd | /library/Silent Hill HD Collection.tar.zst#sh3_bgm_02.hd"))
+    #expect(scratchLines.contains("archive-error | metadata: failed opening | Silent Hill HD Collection.tar.zst#sh3_bgm_02.hd"))
     #expect(!scratchLines.contains(where: { $0.contains("ScanSong-ScanScratch") || $0.contains("/private/var") }))
+
+    let duplicateMemberFailure = ScanFailure(
+        identity: ScanItemIdentity(rootID: 1, path: "/library/Hard Corps.tar.zst", archiveEntry: "Stage01_Active.txtp"),
+        fingerprint: fingerprint,
+        route: nil,
+        stage: .metadata,
+        message: "vgmstream returned invalid metadata for Stage01_Active.txtp"
+    )
+    let duplicateLines = ScanLogFormatter.lines(
+        status: "complete",
+        summary: "1 discovered, 0 tracks, 0 reused, 1 failed",
+        rootPath: "/library",
+        failures: [duplicateMemberFailure],
+        skipped: []
+    )
+    #expect(duplicateLines.contains("archive-error | metadata: vgmstream returned invalid metadata | Hard Corps.tar.zst#Stage01_Active.txtp"))
 }
 
 @Test func sharedLifecycleAndAccumulatorUseOneCrossHostVocabulary() async throws {
@@ -787,4 +953,44 @@ private func querySingleRow(database: OpaquePointer, sql: String) throws -> [Str
     #expect(error is CancellationError)
     #expect(try await first.value == 1)
     #expect(try await scheduler.withPermit { 3 } == 3)
+}
+
+private func makeSPCFile(id666Flag: UInt8) -> Data {
+    var data = Data(repeating: 0, count: 0x10200)
+    data.replaceSubrange(0..<27, with: Data("SNES-SPC700 Sound File Data".utf8))
+    data[0x23] = id666Flag
+    return data
+}
+
+private func writeBytes(_ data: inout Data, at offset: Int, value: String) {
+    let bytes = Array(value.utf8)
+    data.replaceSubrange(offset..<(offset + bytes.count), with: bytes)
+}
+
+private func writeSPCTestFile(_ data: Data, name: String) throws -> URL {
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("ScanSong-\(UUID().uuidString)-\(name)")
+    try data.write(to: url)
+    return url
+}
+
+private func makeXID6Chunk(items: [[UInt8]]) -> Data {
+    let payload = items.flatMap { $0 }
+    var chunk = Data("xid6".utf8)
+    chunk.append(contentsOf: littleEndianBytes(UInt32(payload.count)))
+    chunk.append(contentsOf: payload)
+    return chunk
+}
+
+private func makeXID6Item(id: UInt8, type: UInt8, payload: [UInt8]) -> [UInt8] {
+    var item = [id, type, UInt8(payload.count & 0xFF), UInt8((payload.count >> 8) & 0xFF)]
+    if type != 0 {
+        item.append(contentsOf: payload)
+        item.append(contentsOf: repeatElement(0, count: (4 - (payload.count % 4)) % 4))
+    }
+    return item
+}
+
+private func littleEndianBytes(_ value: UInt32) -> [UInt8] {
+    [UInt8(value & 0xFF), UInt8((value >> 8) & 0xFF), UInt8((value >> 16) & 0xFF), UInt8((value >> 24) & 0xFF)]
 }

@@ -105,6 +105,7 @@ public final class CatalogScanner: @unchecked Sendable {
     public func scan(
         rootURL: URL,
         mode: ScanMode = .incremental,
+        discoveryReport: ScanDiscoveryReport? = nil,
         progress: ProgressHandler? = nil
     ) async throws -> CatalogScanResult {
         let rootURL = CanonicalFileURL.resolve(rootURL)
@@ -136,13 +137,18 @@ public final class CatalogScanner: @unchecked Sendable {
         do {
             timeline.enter(.discovery)
             emit(.discovery)
-            let discovery = try await ScanFilesystemDiscovery.discoverReport(
-                rootID: root.id,
-                rootURL: rootURL,
-                registry: registry,
-                isArchive: StandaloneArchiveExtractor.isSupportedArchive,
-                ignoredFileExtensions: ignoredFileExtensions
-            )
+            let discovery: ScanDiscoveryReport
+            if let discoveryReport {
+                discovery = discoveryReport
+            } else {
+                discovery = try await ScanFilesystemDiscovery.discoverReport(
+                    rootID: root.id,
+                    rootURL: rootURL,
+                    registry: registry,
+                    isArchive: StandaloneArchiveExtractor.isSupportedArchive,
+                    ignoredFileExtensions: ignoredFileExtensions
+                )
+            }
             let candidates = discovery.candidates
             skipped.append(contentsOf: discovery.skipped)
             discovered = candidates.count
@@ -294,6 +300,101 @@ public final class CatalogScanner: @unchecked Sendable {
             writer.markFailed(rootID: root.id, message: error.localizedDescription)
             throw error
         }
+    }
+
+    /// Scans several roots as one operation. Discovery is completed once for
+    /// every root before source inspection begins, which gives callers one
+    /// stable source/archive total instead of a denominator that changes as
+    /// sequential roots are introduced.
+    public func scan(
+        rootURLs: [URL],
+        mode: ScanMode = .incremental,
+        progress: ProgressHandler? = nil
+    ) async throws -> [CatalogScanResult] {
+        guard !rootURLs.isEmpty else { return [] }
+
+        struct PreparedRoot: Sendable {
+            let url: URL
+            let discovery: ScanDiscoveryReport
+        }
+
+        var prepared: [PreparedRoot] = []
+        var discoveredSoFar = 0
+        for rootURL in rootURLs {
+            try Task.checkCancellation()
+            let canonicalURL = CanonicalFileURL.resolve(rootURL)
+            let root = try writer.addRoot(path: canonicalURL.path)
+            let discovery = try await ScanFilesystemDiscovery.discoverReport(
+                rootID: root.id,
+                rootURL: canonicalURL,
+                registry: registry,
+                isArchive: StandaloneArchiveExtractor.isSupportedArchive,
+                ignoredFileExtensions: ignoredFileExtensions
+            )
+            prepared.append(PreparedRoot(url: canonicalURL, discovery: discovery))
+            discoveredSoFar += discovery.candidates.count
+            progress?(CatalogScanProgress(
+                phase: .discovery,
+                rootPath: canonicalURL.path,
+                currentPath: nil,
+                discovered: discoveredSoFar,
+                processed: 0,
+                successful: 0,
+                failed: 0,
+                detail: "Counted (discoveredSoFar) sources…"
+            ))
+        }
+
+        let total = prepared.reduce(0) { $0 + $1.discovery.candidates.count }
+        progress?(CatalogScanProgress(
+            phase: .planning,
+            rootPath: prepared.first?.url.path ?? "",
+            currentPath: nil,
+            discovered: total,
+            processed: 0,
+            successful: 0,
+            failed: 0,
+            detail: "Discovered (total) sources across (prepared.count) roots",
+            phaseCompleted: 0,
+            phaseTotal: total
+        ))
+
+        var results: [CatalogScanResult] = []
+        var processedOffset = 0
+        var failureOffset = 0
+        for item in prepared {
+            try Task.checkCancellation()
+            let currentProcessedOffset = processedOffset
+            let currentFailureOffset = failureOffset
+            let result = try await scan(
+                rootURL: item.url,
+                mode: mode,
+                discoveryReport: item.discovery
+            ) { update in
+                let globalProcessed = min(total, currentProcessedOffset + update.processed)
+                let globalSuccessful = currentProcessedOffset + update.successful
+                let globalFailed = currentFailureOffset + update.failed
+                let sourcePhaseProgress = update.phase == .publication
+                    ? (update.phaseCompleted, update.phaseTotal)
+                    : (update.phaseCompleted.map { currentProcessedOffset + $0 }, update.phaseCompleted == nil ? nil : total)
+                progress?(CatalogScanProgress(
+                    phase: update.phase,
+                    rootPath: update.rootPath,
+                    currentPath: update.currentPath,
+                    discovered: total,
+                    processed: globalProcessed,
+                    successful: globalSuccessful,
+                    failed: globalFailed,
+                    detail: update.detail,
+                    phaseCompleted: sourcePhaseProgress.0,
+                    phaseTotal: sourcePhaseProgress.1
+                ))
+            }
+            results.append(result)
+            processedOffset += result.discoveredSourceCount
+            failureOffset += result.failures.count
+        }
+        return results
     }
 
     private struct CandidateInspection: Sendable {

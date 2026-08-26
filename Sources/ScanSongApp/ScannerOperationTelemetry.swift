@@ -45,6 +45,7 @@ enum ScannerOperationKind: String, Sendable {
     case scan = "Scan"
     case checkLinks = "Check Links"
     case removeLinks = "Remove Links"
+    case addPath = "Add Path"
 }
 
 struct ScannerOperationProgress: Sendable {

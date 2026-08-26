@@ -104,6 +104,10 @@
   and samples it every 250 ms on the main actor. Do not enqueue one GUI task or
   render one current file for every callback; progress presentation must not
   pace any worker operation.
+- Scan progress is source-level: each loose file or archive is one work item;
+  archive-member inspection updates detail/current-path only. Multi-root
+  callers use the session scan API, which discovers every root once and then
+  reports one stable aggregate source total.
 
 ## Concurrency and Failure Boundaries
 
@@ -141,7 +145,8 @@
 - Child archive processes are terminated when their task is cancelled.
 - Archive paths, symlinks, member count/name size, and expanded bytes are
   validated before records are accepted.
-- Required adapters currently include libgme enumeration, SPC tags, PSF tags,
+- Required adapters currently include libgme enumeration, in-process SPC ID666
+  and xID6 harvesting, PSF tags,
   plain VGM metadata, direct Commodore 64 SID PSID/RSID header reads, the
   Core Audio standard-audio inspector for FLAC/Vorbis comments and exact
   decoded duration (with AVFoundation metadata fallback for other ordinary

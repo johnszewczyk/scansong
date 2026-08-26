@@ -69,19 +69,25 @@ collapsed into one ignored-format bucket:
 - Game Boy `.gbs` in the Bakukyuu Renpatsu archive is rejected by the selected
   emulator route (`Wrong file type for this emulator`). It remains a decoder
   integration gap until the correct VGMBoy/Game Boy sound route is proven.
-- The reported SNES `.spc` member has an unknown SPC xID6 item type. It is a
-  routed SPC decoder failure and remains visible as a metadata failure.
+- SPC metadata is harvested in-process from the ID666 header and optional xID6
+  chunk. Unknown xID6 item types are skipped after bounds validation, and
+  binary/text ID666 layouts both contribute native timing without starting
+  libgme for ordinary SPC metadata.
 - Silent Hill: Shattered Memories `.ss2` members fail to open. `.ss2` is an
   established route, so these remain visible archive-member failures and are
   not ignored.
 - Silent Hill HD Collection `.hd` members fail to open through the current
-  `.hd`/`.hbd`/`.iecs` adapter. This is an active dependency/decoder failure,
-  not evidence that the files are unsupported; keep it visible while the
-  matching companion-bank layout is investigated.
+  `.hd`/`.hbd`/`.iecs` adapter. The archive contains IECS `.hd` indexes with
+  `.td` control data and separate `.msf` ATRAC streams, while the bundled
+  vgmstream `hd_bd` reader expects a standard `.hd` plus `.bd` layout (or a
+  combined `.hbd`). The `.msf` payloads open successfully, so this is a
+  format-adapter gap rather than evidence that the audio is corrupt; keep the
+  `.hd` failures visible until the matching IECS/`.td` adapter is added.
 
-The last-result scan log uses uniform `status | detail | path` columns. It
-records actual failures, including the exact `archive#member` path for an
-archive error. Successful archive members are never listed; skipped archive
+The last-result scan log uses uniform `status | detail | path` columns. Paths
+are relative to the selected scanner root, including the `archive#member`
+identifier for an archive error. Redundant member names are removed from the
+detail column. Successful archive members are never listed; skipped archive
 members are grouped by archive and extension. Unknown archive members use
 `unrecognized` rows without becoming catalog candidates, while known support
 files and extensionless archive material remain quiet.

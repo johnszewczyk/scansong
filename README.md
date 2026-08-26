@@ -96,8 +96,8 @@ error.
 - ZIP, 7z, RAR/RSN, TAR.ZST, and TZST archives with bounded complete
   materialization, path/symlink validation, cancellation, and cleanup.
 - Native libgme enumeration and metadata for NSF, NSFE, GBS, AY, HES, KSS, SAP,
-  SPC, and related registered formats.
-- Direct bounded SPC ID666/xID6, PSF footer-tag, plain VGM GD3/timing, and
+  and related registered formats.
+- Direct bounded SPC ID666/xID6 harvesting, PSF footer-tag, plain VGM GD3/timing, and
   Commodore 64 SID PSID/RSID header reads.
 - Structurally known single rows for standard audio (including OGG Vorbis),
   modules, and registered formats whose optional metadata can remain empty.

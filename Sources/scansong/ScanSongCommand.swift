@@ -192,10 +192,10 @@ private struct ScanSongCommand {
             var accepted = 0
             var failed = 0
             var phaseMilliseconds: [ScanLifecyclePhase: Int] = [:]
-            for root in roots {
-                let result = try await scanner.scan(rootURL: root, mode: mode) { update in
-                    progressReporter.emit(update, to: events)
-                }
+            let results = try await scanner.scan(rootURLs: roots, mode: mode) { update in
+                progressReporter.emit(update, to: events)
+            }
+            for result in results {
                 discovered += result.discoveredSourceCount
                 accepted += result.trackCount
                 failed += result.failures.count
@@ -227,7 +227,7 @@ private struct ScanSongCommand {
                         ScannerEvent(
                             kind: .diagnostic,
                             sequence: sequence,
-                            path: roots.first?.path,
+                            path: result.root.path,
                             diagnostic: ScannerDiagnostic(
                                 code: "scan.skipped.summary",
                                 severity: .warning,

@@ -16,6 +16,11 @@ private enum MaintenanceOutcome: Sendable {
     case failure(String)
 }
 
+private enum PathAdditionOutcome: Sendable {
+    case success
+    case failure(String)
+}
+
 @MainActor
 final class ScannerAppModel: ObservableObject {
     private static let catalogPathKey = "ScanSong.catalogPath"
@@ -43,6 +48,7 @@ final class ScannerAppModel: ObservableObject {
 
     private var scanTask: Task<Void, Never>?
     private var worker: Task<ScanOutcome, Never>?
+    private var pathTask: Task<PathAdditionOutcome, Never>?
     private var activeRootID: Int64?
     private var operationStartedAt: Date?
     private var logWindows: [Int64: ScannerScanLogWindow] = [:]
@@ -358,15 +364,52 @@ final class ScannerAppModel: ObservableObject {
 
     private func add(_ urls: [URL]) {
         guard !isBusy else { return }
-        let canonical = urls.map { $0.standardizedFileURL.resolvingSymlinksInPath() }
-        do {
-            let writer = try CanonicalCatalogWriter(databaseURL: databaseURL)
-            for url in Set(canonical) { _ = try writer.addRoot(path: url.path) }
-            try refreshRoots()
-            scanStatus = readyText
-            validateCatalog()
-        } catch {
-            record(error, stage: "paths.add")
+        let canonical = Array(Set(urls.map { $0.standardizedFileURL.resolvingSymlinksInPath() }))
+            .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+        guard !canonical.isEmpty else { return }
+
+        isMaintaining = true
+        completedOperation = nil
+        operationProgress = ScannerOperationProgress(
+            operation: .addPath,
+            phase: "adding",
+            processed: 0,
+            total: nil,
+            failures: 0,
+            detail: "Adding \(canonical.count) scan path\(canonical.count == 1 ? "" : "s")…"
+        )
+        scanStatus = "Adding \(canonical.count) scan path\(canonical.count == 1 ? "" : "s") to the catalog…"
+
+        let databaseURL = databaseURL
+        let worker = Task.detached(priority: .utility) {
+            do {
+                let writer = try CanonicalCatalogWriter(databaseURL: databaseURL)
+                for url in canonical { _ = try writer.addRoot(path: url.path) }
+                return PathAdditionOutcome.success
+            } catch {
+                return PathAdditionOutcome.failure(error.localizedDescription)
+            }
+        }
+        pathTask = worker
+        Task { [weak self] in
+            let outcome = await worker.value
+            guard let self else { return }
+            pathTask = nil
+            isMaintaining = false
+            switch outcome {
+            case .success:
+                do {
+                    try refreshRoots()
+                    scanStatus = readyText
+                    validateCatalog()
+                } catch {
+                    record(error, stage: "paths.add.refresh")
+                }
+            case .failure(let message):
+                recordMaintenanceFailure(message)
+            }
+            operationProgress = nil
+            completeRequestedCloseIfIdle()
         }
     }
 
@@ -392,12 +435,11 @@ final class ScannerAppModel: ObservableObject {
                     databaseURL: databaseURL,
                     ignoredFileExtensions: ignoredFileExtensions
                 )
-                var results: [CatalogScanResult] = []
-                for root in requestedRoots {
-                    try Task.checkCancellation()
-                    results.append(try await scanner.scan(rootURL: URL(fileURLWithPath: root.path), mode: mode) {
-                        progressBuffer.publish($0)
-                    })
+                let results = try await scanner.scan(
+                    rootURLs: requestedRoots.map { URL(fileURLWithPath: $0.path) },
+                    mode: mode
+                ) {
+                    progressBuffer.publish($0)
                 }
                 return ScanOutcome.success(results)
             } catch is CancellationError {
@@ -542,12 +584,11 @@ final class ScannerAppModel: ObservableObject {
     }
 
     private func applyVisibleProgress(_ update: CatalogScanProgress) {
-        let isPublication = update.phase == .publication
         operationProgress = ScannerOperationProgress(
             operation: .scan,
             phase: update.phase.rawValue,
-            processed: isPublication ? (update.phaseCompleted ?? update.processed) : update.processed,
-            total: isPublication ? (update.phaseTotal ?? update.discovered) : update.discovered,
+            processed: update.processed,
+            total: update.discovered,
             failures: update.failed,
             detail: update.detail
         )
@@ -783,7 +824,7 @@ struct ScannerWindow: View {
                 .accessibilityLabel("Enable All / Disable All Paths")
                 .disabled(model.isBusy || model.roots.isEmpty)
 
-                actionButton("Add Path") { model.addPaths() }
+                actionButton(model.operationProgress?.operation == .addPath ? "Adding…" : "Add Path") { model.addPaths() }
                     .disabled(model.isBusy)
                 actionButton("Reset Paths") { model.showsResetPathsConfirmation = true }
                     .disabled(model.isBusy || model.roots.isEmpty)

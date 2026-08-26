@@ -33,7 +33,7 @@
 ## Scan Results
 
 - The last-result log has fixed `status | detail | path` columns. Actual
-  archive failures retain the `archive#member` path; successful members are
+  archive failures retain the root-relative `archive#member` path; successful members are
   never listed, and skipped archive members are grouped by archive and
   extension. Scan Status is the only in-window summary.
 - Scanner-owned extraction scratch prefixes are removed from diagnostic details;
@@ -44,6 +44,13 @@
   the worker. CLI JSONL diagnostics are separately rate-limited to
   phase changes, phase completion, or at most one event per second; diagnostic
   output must never become the scan's throughput limiter.
+- Scan item progress counts top-level sources: a loose file or an archive. An
+  archive member may update the current-file display, but never advances the
+  source/archive counter. Multi-root scans discover all roots once before
+  inspection so the displayed denominator remains stable.
+- Adding scan paths is an asynchronous catalog operation. The UI shows an
+  indeterminate Add Path state while the catalog is opened and refreshed, so
+  database work does not block the main window.
 - While active, Scan Status presents a bold `Current Scan` heading followed by
   indented monospaced `Items:` and `Fails:` counters. These aggregate readouts
   disappear when the operation finishes; completion is a compact green checkmark

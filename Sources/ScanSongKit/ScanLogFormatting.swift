@@ -37,7 +37,7 @@ public enum ScanLogFormatter {
     ) -> [String] {
         var lines = [
             header,
-            render(status: status, detail: summary, path: rootPath)
+            render(status: status, detail: summary, path: ".")
         ]
 
         let sortedFailures = failures.sorted {
@@ -59,12 +59,12 @@ public enum ScanLogFormatter {
             }
             return render(
                 status: status,
-                detail: "\(failure.stage.rawValue): \(ScanDiagnosticSanitizer.sanitize(failure.message))",
-                path: identityDescription(for: failure.identity)
+                detail: "\(failure.stage.rawValue): \(compactDetail(failure.message, identity: failure.identity))",
+                path: relativeIdentityDescription(for: failure.identity, rootPath: rootPath)
             )
         })
 
-        lines.append(contentsOf: skippedLines(skipped))
+        lines.append(contentsOf: skippedLines(skipped, rootPath: rootPath))
         return lines
     }
 
@@ -74,7 +74,7 @@ public enum ScanLogFormatter {
         let reason: ScanSkipReason
     }
 
-    private static func skippedLines(_ skipped: [ScanSkippedFile]) -> [String] {
+    private static func skippedLines(_ skipped: [ScanSkippedFile], rootPath: String) -> [String] {
         var lines: [String] = []
         var archiveGroups: [ArchiveSkipGroup: Int] = [:]
 
@@ -91,7 +91,7 @@ public enum ScanLogFormatter {
             lines.append(render(
                 status: skipStatus(for: item.reason),
                 detail: "\(skipDetail(for: item.reason)) (\(extensionLabel(item.extensionName)))",
-                path: item.identityDescription
+                path: relativeIdentityDescription(for: item.identity, rootPath: rootPath)
             ))
         }
 
@@ -105,7 +105,7 @@ public enum ScanLogFormatter {
             return render(
                 status: skipStatus(for: group.reason),
                 detail: "\(skipDetail(for: group.reason)) (\(extensionLabel(group.extensionName)), \(count) \(noun))",
-                path: group.path
+                path: relativeSourcePath(group.path, rootPath: rootPath)
             )
         }
 
@@ -133,6 +133,43 @@ public enum ScanLogFormatter {
 
     private static func identityDescription(for identity: ScanItemIdentity) -> String {
         identity.archiveEntry.map { "\(identity.path)#\($0)" } ?? identity.path
+    }
+
+    private static func relativeIdentityDescription(for identity: ScanItemIdentity, rootPath: String) -> String {
+        let sourcePath = relativeSourcePath(identity.path, rootPath: rootPath)
+        guard let entry = identity.archiveEntry, !entry.isEmpty else { return sourcePath }
+        return "\(sourcePath)#\(entry.replacingOccurrences(of: "\\\\", with: "/"))"
+    }
+
+    private static func relativeSourcePath(_ path: String, rootPath: String) -> String {
+        let source = URL(fileURLWithPath: path).standardizedFileURL.path
+        let root = URL(fileURLWithPath: rootPath).standardizedFileURL.path
+        if source == root { return "." }
+        let prefix = root.hasSuffix("/") ? root : "\(root)/"
+        guard source.hasPrefix(prefix) else { return path }
+        return String(source.dropFirst(prefix.count))
+    }
+
+    private static func compactDetail(_ message: String, identity: ScanItemIdentity) -> String {
+        var detail = ScanDiagnosticSanitizer.sanitize(message)
+            .replacingOccurrences(of: "\\\\", with: "/")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let entry = identity.archiveEntry, !entry.isEmpty else { return detail }
+
+        let normalizedEntry = entry.replacingOccurrences(of: "\\\\", with: "/")
+        let memberNames = [normalizedEntry, URL(fileURLWithPath: normalizedEntry).lastPathComponent]
+            .filter { !$0.isEmpty }
+            .sorted { $0.count > $1.count }
+        for memberName in memberNames where detail.hasSuffix(memberName) {
+            detail = String(detail.dropLast(memberName.count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            for preposition in ["for", "of"] where detail.hasSuffix(" \(preposition)") {
+                detail = String(detail.dropLast(preposition.count + 1))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            break
+        }
+        return detail.isEmpty ? "member inspection failed" : detail
     }
 
     private static func render(status: String, detail: String, path: String) -> String {
