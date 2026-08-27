@@ -142,7 +142,12 @@
 - SQLite write contention waits through the configured busy timeout. A timeout
   or conflicting writer leaves completed transactions atomic and the catalog
   readable; ScanSong reports the condition and re-enables retry actions.
-- Child archive processes are terminated when their task is cancelled.
+- Child archive processes are terminated when their task is cancelled. A
+  standalone `name.ext.zst` or `name.ext.zstd` is admitted only when `ext` is
+  a registered playable format; its basename is the single implicit member
+  name, and Zstandard writes that one payload into disposable scan scratch.
+  It is not treated as a complete dependency set. TAR.ZST remains the
+  multi-member streaming tar path.
 - Archive paths, symlinks, member count/name size, and expanded bytes are
   validated before records are accepted.
 - Required adapters currently include libgme enumeration, in-process SPC ID666

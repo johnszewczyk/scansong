@@ -116,6 +116,12 @@ error.
   dependency is present in the extracted source archive; every validated file
   becomes its real single playable row.
 
+Standalone Zstandard inputs use the explicit `name.ext.zst` or
+`name.ext.zstd` convention: `ext` is the required inner playable format name,
+and the scan produces one implicit member. A bare `file.zst` with no inferable
+playable suffix is rejected. `*.tar.zst` and `*.tar.zstd` are always treated as
+multi-member TAR containers.
+
 ScanSong does not yet embed every playback codec. Each intake plugin owns
 its structural and metadata boundary and returns only tracks it actually opens.
 Formats without an implementable scanner adapter are documented in

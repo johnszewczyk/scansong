@@ -50,8 +50,29 @@ public struct StandaloneArchiveExtractor: Sendable {
 
     public static func isSupportedArchive(_ url: URL) -> Bool {
         let name = url.lastPathComponent.lowercased()
-        return [".7z", ".rar", ".rsn", ".tar.zst", ".tar.zstd", ".tzst", ".zip"]
+        return [".7z", ".rar", ".rsn", ".tar.zst", ".tar.zstd", ".tzst", ".zip", ".zst", ".zstd"]
             .contains { name.hasSuffix($0) }
+    }
+
+    /// A standalone Zstandard file has one implicit member. The outer name
+    /// carries that member's playable extension: `track.vgm.zst` becomes
+    /// `track.vgm`. Unknown or extensionless payloads are rejected instead of
+    /// being admitted as an opaque archive.
+    static func standaloneEntryPath(
+        for archiveURL: URL,
+        registry: ScannerPluginRegistry
+    ) -> String? {
+        guard isStandaloneZstandard(archiveURL) else { return nil }
+        let entryPath = archiveURL.deletingPathExtension().lastPathComponent
+        guard isSafeRelativePath(entryPath),
+              !entryPath.isEmpty,
+              registry.route(
+                  pathExtension: URL(fileURLWithPath: entryPath).pathExtension,
+                  archiveMember: true
+              ) != nil else {
+            return nil
+        }
+        return entryPath
     }
 
     public func extractForScan(
@@ -64,8 +85,18 @@ public struct StandaloneArchiveExtractor: Sendable {
         let payload = root.appendingPathComponent("payload", isDirectory: true)
         try fileManager.createDirectory(at: payload, withIntermediateDirectories: true)
         do {
-            if isTarZstandard(archiveURL) {
+            if Self.isTarZstandard(archiveURL) {
                 try await extractTarZstandard(archiveURL: archiveURL, payloadURL: payload, scratchURL: root)
+            } else if Self.isStandaloneZstandard(archiveURL) {
+                guard let entryPath = Self.standaloneEntryPath(for: archiveURL, registry: registry) else {
+                    throw StandaloneArchiveError.unsupported(archiveURL.lastPathComponent)
+                }
+                try await extractStandaloneZstandard(
+                    archiveURL: archiveURL,
+                    entryPath: entryPath,
+                    payloadURL: payload,
+                    scratchURL: root
+                )
             } else {
                 try await extractWith7Zip(archiveURL: archiveURL, payloadURL: payload, scratchURL: root)
             }
@@ -126,6 +157,48 @@ public struct StandaloneArchiveExtractor: Sendable {
             arguments: ["x", "-mmt=1", "-y", "-o\(payloadURL.path)", archiveURL.path],
             logURL: scratchURL.appendingPathComponent("7zip.log")
         )
+    }
+
+    private func extractStandaloneZstandard(
+        archiveURL: URL,
+        entryPath: String,
+        payloadURL: URL,
+        scratchURL: URL
+    ) async throws {
+        let zstandard = try requiredTool([
+            "/opt/homebrew/bin/zstd", "/usr/local/bin/zstd", "/usr/bin/zstd"
+        ])
+        let outputURL = payloadURL.appendingPathComponent(entryPath, isDirectory: false)
+        guard outputURL.standardizedFileURL.path.hasPrefix(
+            payloadURL.standardizedFileURL.path + "/"
+        ) else {
+            throw StandaloneArchiveError.unsafeEntry(entryPath)
+        }
+        try fileManager.createDirectory(
+            at: outputURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        do {
+            try await ScannerCommand.runWritingOutput(
+                executable: zstandard,
+                arguments: ["-d", "-q", "-c", "--", archiveURL.path],
+                outputURL: outputURL,
+                logURL: scratchURL.appendingPathComponent("zstd.log")
+            )
+            let attributes = try fileManager.attributesOfItem(atPath: outputURL.path)
+            let byteCount = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+            guard byteCount > 0 else {
+                throw StandaloneArchiveError.resourceLimit("Standalone Zstandard payload is empty.")
+            }
+            guard byteCount <= Self.maximumExpandedBytes else {
+                throw StandaloneArchiveError.resourceLimit(
+                    "Standalone Zstandard payload expands beyond the 8 GiB scan safety limit."
+                )
+            }
+        } catch {
+            try? fileManager.removeItem(at: outputURL)
+            throw error
+        }
     }
 
     private func normalizeExtractedDirectories(at rootURL: URL) throws {
@@ -232,9 +305,14 @@ public struct StandaloneArchiveExtractor: Sendable {
         return URL(fileURLWithPath: path)
     }
 
-    private func isTarZstandard(_ url: URL) -> Bool {
+    private static func isTarZstandard(_ url: URL) -> Bool {
         let name = url.lastPathComponent.lowercased()
         return name.hasSuffix(".tar.zst") || name.hasSuffix(".tar.zstd") || name.hasSuffix(".tzst")
+    }
+
+    private static func isStandaloneZstandard(_ url: URL) -> Bool {
+        let name = url.lastPathComponent.lowercased()
+        return (name.hasSuffix(".zst") || name.hasSuffix(".zstd")) && !isTarZstandard(url)
     }
 
 }
@@ -359,6 +437,56 @@ private enum ScannerCommand {
         }
         try Task.checkCancellation()
         return output
+    }
+
+    static func runWritingOutput(
+        executable: URL,
+        arguments: [String],
+        outputURL: URL,
+        logURL: URL
+    ) async throws {
+        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+        FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        let output = try FileHandle(forWritingTo: outputURL)
+        let log = try FileHandle(forWritingTo: logURL)
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = arguments
+        process.standardOutput = output
+        process.standardError = log
+        let box = ScannerProcessBox()
+        box.install(process)
+
+        let status: Int32 = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                process.terminationHandler = { finished in
+                    box.clear()
+                    continuation.resume(returning: finished.terminationStatus)
+                }
+                do { try process.run() }
+                catch {
+                    box.clear()
+                    continuation.resume(throwing: error)
+                }
+            }
+        } onCancel: {
+            box.terminate()
+        }
+        try output.close()
+        try log.close()
+        if status != 0 {
+            let detail = String(
+                decoding: (try? Data(contentsOf: logURL))?.suffix(8_192) ?? Data(),
+                as: UTF8.self
+            ).trimmingCharacters(in: .whitespacesAndNewlines)
+            if Task.isCancelled { throw CancellationError() }
+            throw StandaloneArchiveError.commandFailed(
+                tool: executable.lastPathComponent,
+                status: status,
+                detail: detail
+            )
+        }
+        try Task.checkCancellation()
     }
 
     static func runTarZstandard(

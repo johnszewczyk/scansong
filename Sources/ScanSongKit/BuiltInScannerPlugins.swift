@@ -33,5 +33,5 @@ public enum BuiltInScannerPlugins {
         .init(pluginID: "sid", displayName: "SID", supportedExtensions: ["sid"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 10)
     ])
 
-    public static let archiveExtensions: Set<String> = ["7z", "rar", "rsn", "tar.zst", "tar.zstd", "tzst", "zip"]
+    public static let archiveExtensions: Set<String> = ["7z", "rar", "rsn", "tar.zst", "tar.zstd", "tzst", "zip", "zst", "zstd"]
 }

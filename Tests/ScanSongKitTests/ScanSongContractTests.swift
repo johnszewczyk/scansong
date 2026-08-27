@@ -18,6 +18,17 @@ import Testing
     #expect(registry.route(pathExtension: "qsf")?.pluginID == "qsf")
     #expect(registry.route(pathExtension: "miniqsf")?.pluginID == "qsf-mini")
     #expect(registry.route(pathExtension: "miniqsf")?.structurePolicy == .dependencyEnumerate)
+    #expect(BuiltInScannerPlugins.archiveExtensions.contains("zst"))
+    #expect(StandaloneArchiveExtractor.isSupportedArchive(URL(fileURLWithPath: "track.vgm.zst")))
+    #expect(StandaloneArchiveExtractor.isSupportedArchive(URL(fileURLWithPath: "set.tar.zst")))
+    #expect(StandaloneArchiveExtractor.standaloneEntryPath(
+        for: URL(fileURLWithPath: "track.vgm.zst"),
+        registry: registry
+    ) == "track.vgm")
+    #expect(StandaloneArchiveExtractor.standaloneEntryPath(
+        for: URL(fileURLWithPath: "set.tar.zst"),
+        registry: registry
+    ) == nil)
     #expect(registry.route(pathExtension: "strm")?.pluginID == "vgmstream")
     #expect(registry.route(pathExtension: "ahx")?.pluginID == "vgmstream")
     #expect(registry.route(pathExtension: "xmd")?.pluginID == "vgmstream")
@@ -600,6 +611,33 @@ func spcFixturesPublishNativeLengths() async throws {
     )
     let encoded = try JSONEncoder().encode(metadata)
     #expect(try JSONDecoder().decode(ScannerMetadata.self, from: encoded) == metadata)
+}
+
+@Test func standaloneZstandardExtractionProducesOneImplicitPlayableMember() async throws {
+    let zstandardPath = ["/opt/homebrew/bin/zstd", "/usr/local/bin/zstd", "/usr/bin/zstd"]
+        .first(where: { FileManager.default.isExecutableFile(atPath: $0) })
+    guard let zstandardPath else { return }
+
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("ScanSong-standalone-zst-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let source = root.appendingPathComponent("track.vgm")
+    let archive = root.appendingPathComponent("track.vgm.zst")
+    try Data("standalone-vgm-payload".utf8).write(to: source)
+
+    let compressor = Process()
+    compressor.executableURL = URL(fileURLWithPath: zstandardPath)
+    compressor.arguments = ["-q", "-f", source.path, "-o", archive.path]
+    try compressor.run()
+    compressor.waitUntilExit()
+    #expect(compressor.terminationStatus == 0)
+
+    let extracted = try await StandaloneArchiveExtractor().extractForScan(archiveURL: archive)
+    defer { StandaloneArchiveExtractor().discard(extracted) }
+    #expect(extracted.members.map(\.entryPath) == ["track.vgm"])
+    #expect(String(data: try Data(contentsOf: extracted.members[0].fileURL), encoding: .utf8) == "standalone-vgm-payload")
 }
 
 @Test func catalogBrowserSystemComesOnlyFromTheCollectionPath() {
