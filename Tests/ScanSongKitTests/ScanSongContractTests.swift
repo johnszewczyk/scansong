@@ -870,6 +870,15 @@ func joshWResidentEvil2ArchiveScansThroughTarZstandard() async throws {
     #expect(updates.contains { $0.phase == .persistence && $0.processed == 1 && $0.discovered == 1 })
     #expect(updates.last?.processed == 1)
     #expect(updates.last?.discovered == 1)
+
+    var database: OpaquePointer?
+    #expect(sqlite3_open_v2(databaseURL.path, &database, SQLITE_OPEN_READONLY, nil) == SQLITE_OK)
+    let row = try querySingleRow(
+        database: try #require(database),
+        sql: "SELECT m.play_length_ms, m.fade_length_ms FROM tracks t INNER JOIN track_metadata m ON m.track_id=t.id WHERE t.archive_entry='11 Secure Place.psf';"
+    )
+    sqlite3_close(database)
+    #expect(row == ["43000", "10000"])
 }
 
 @Test(
