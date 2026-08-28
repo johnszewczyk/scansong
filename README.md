@@ -103,10 +103,13 @@ error.
 - Direct SNDH tag/subtune/timing harvesting through VGMBoy's shared `VGMBoySNDH`
   product. SNDH files are enumerated into their actual Atari ST subtunes; the
   scanner does not start playback just to publish metadata.
-- VGMBoy's current 16-file SNDH sample matrix covers game music, loaders/menus,
-  DMA and 5-channel variants, digitized pieces, and demos. Those samples opened
-  and rendered non-silent PCM; this is decoder evidence only, not a claim that
-  every file in the 5,897-file Atari ST corpus is musical or supported.
+- SNDH rows use contiguous zero-based `track_index` values and repeat the
+  declared `track_count` on every subtune row, so database/game/file playlist
+  activation can select each subtune without reopening the scanner. VGMBoy's
+  deterministic 1,024-file corpus sample rendered 2,030 subtunes with zero
+  failures, including 4-Mat's eight-subtune Shadow Dancer; this remains decoder
+  evidence, not a claim that every file in the 5,897-file Atari ST corpus is
+  conventional music or supported.
 - Structurally known single rows for standard audio (including OGG Vorbis),
   modules, and registered formats whose optional metadata can remain empty.
 - Tracker/module rows (S3M, MOD, IT, XM, MTM, STM, and related) via

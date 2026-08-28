@@ -179,7 +179,10 @@
   schema-23 publication ownership.
 - SNDH admission uses the direct `psgplay` route and the shared `VGMBoySNDH`
   metadata product. Each declared subtune becomes one scanner track with its
-  SNDH timing; the PSG engine is not started during metadata inspection.
+  SNDH timing and a contiguous zero-based `track_index`; every row repeats the
+  file's declared `track_count`. The PSG engine is not started during metadata
+  inspection. Playback selection is validated separately in VGMBoy because
+  scanner publication alone cannot prove that a native subtune can restart.
 - HES inspection applies a same-basename sibling `.m3u` when one is present.
   The playlist remains a non-track support file, while its authored track
   mapping and timing determine the HES rows published by the scanner.

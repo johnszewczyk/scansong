@@ -62,6 +62,7 @@ func sndhFixtureInspectsThroughPSGPlay() async throws {
     let inspection = try await handler.inspect(fileURL: fileURL, route: route)
     #expect(!inspection.tracks.isEmpty)
     #expect(inspection.tracks.allSatisfy { $0.trackCount == inspection.tracks.count })
+    #expect(inspection.tracks.map(\.trackIndex) == Array(0..<inspection.tracks.count))
     #expect(inspection.tracks.allSatisfy { ($0.metadata?.playLengthMs ?? 0) > 0 })
     #expect(inspection.tracks.first?.metadata?.system == "Atari ST")
 }
