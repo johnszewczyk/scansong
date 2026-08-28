@@ -1,6 +1,7 @@
 import Foundation
 import SQLite3
 import Testing
+import zlib
 @testable import ScanSongKit
 
 @Test func builtInPoliciesPreserveRequiredStructureWork() throws {
@@ -12,6 +13,9 @@ import Testing
     #expect(registry.route(pathExtension: "txtp")?.structurePolicy == .dependencyEnumerate)
     #expect(registry.route(pathExtension: "sid")?.structurePolicy == .knownSingle)
     #expect(registry.route(pathExtension: "sid")?.metadataPolicy == .direct)
+    #expect(registry.route(pathExtension: "sndh")?.pluginID == "psgplay")
+    #expect(registry.route(pathExtension: "sndh")?.structurePolicy == .enumerate)
+    #expect(registry.route(pathExtension: "sndh")?.metadataPolicy == .direct)
     #expect(registry.route(pathExtension: "ogg")?.metadataPolicy == .direct)
     #expect(registry.route(pathExtension: "ogg")?.pluginID == "standard-audio")
     #expect(registry.route(pathExtension: "ogg")?.pluginID != "vgmstream")
@@ -41,6 +45,46 @@ import Testing
     #expect(ScannerFormatPolicy.defaultIgnoredExtensions.contains("sgc"))
     #expect(ScannerFormatPolicy.defaultIgnoredExtensions.contains("minincsf"))
     #expect(ScannerFormatPolicy.defaultIgnoredExtensions.contains("mus"))
+}
+
+@Test(
+    "SNDH fixture publishes PSGPlay subtunes and timing",
+    .enabled(
+        if: ProcessInfo.processInfo.environment["SCANSONG_SNDH_FIXTURE"] != nil,
+        "Set SCANSONG_SNDH_FIXTURE to run the Zone Warrior scanner check."
+    )
+)
+func sndhFixtureInspectsThroughPSGPlay() async throws {
+    let path = try #require(ProcessInfo.processInfo.environment["SCANSONG_SNDH_FIXTURE"])
+    let fileURL = URL(fileURLWithPath: path)
+    let route = try #require(BuiltInScannerPlugins.registry.route(pathExtension: fileURL.pathExtension))
+    let handler = try #require(BuiltInFormatInspectors.registry.handler(for: route))
+    let inspection = try await handler.inspect(fileURL: fileURL, route: route)
+    #expect(!inspection.tracks.isEmpty)
+    #expect(inspection.tracks.allSatisfy { $0.trackCount == inspection.tracks.count })
+    #expect(inspection.tracks.allSatisfy { ($0.metadata?.playLengthMs ?? 0) > 0 })
+    #expect(inspection.tracks.first?.metadata?.system == "Atari ST")
+}
+
+@Test(
+    "HES fixture applies its sibling M3U to publish authored music and SFX",
+    .enabled(
+        if: ProcessInfo.processInfo.environment["SCANSONG_HES_FIXTURE"] != nil,
+        "Set SCANSONG_HES_FIXTURE to run the archive-backed Bloody Wolf HES check."
+    )
+)
+func hesFixtureInspectsCompanionPlaylist() async throws {
+    let path = try #require(ProcessInfo.processInfo.environment["SCANSONG_HES_FIXTURE"])
+    let fileURL = URL(fileURLWithPath: path)
+    let route = try #require(BuiltInScannerPlugins.registry.route(pathExtension: fileURL.pathExtension))
+    let handler = try #require(BuiltInFormatInspectors.registry.handler(for: route))
+    let inspection = try await handler.inspect(fileURL: fileURL, route: route)
+
+    #expect(inspection.tracks.count == 17)
+    #expect(inspection.tracks[0].metadata?.song == "Title")
+    #expect(inspection.tracks[0].metadata?.playLengthMs == 20_000)
+    #expect(inspection.tracks[12].metadata?.song == "Stage Clear")
+    #expect(inspection.tracks[12].metadata?.playLengthMs == 4_000)
 }
 
 @Test(
@@ -188,6 +232,100 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
     #expect(metadata.song == "Willow")
     #expect(metadata.author == "Tester")
     #expect(metadata.playLengthMs == 30_000)
+}
+
+@Test func psfStyleReaderHarvestsQSFTagsAndTimingWithoutOpeningTheEngine() throws {
+    var data = Data([0x50, 0x53, 0x46, 0x41])
+    data.append(Data(repeating: 0, count: 12))
+    data.append(Data("[TAG]\ntitle=Cyberbot\ngame=Cyberbots\nartist=Capcom\nlength=1:23.500\nfade=4.250\n".utf8))
+
+    let fileURL = try writeSPCTestFile(data, name: "cyberbot.qsf")
+    defer { try? FileManager.default.removeItem(at: fileURL) }
+    let result = try #require(try PSFTagReader.readResult(fileURL: fileURL))
+
+    #expect(result.tags["title"] == "Cyberbot")
+    #expect(result.metadata.game == "Cyberbots")
+    #expect(result.metadata.author == "Capcom")
+    #expect(result.metadata.playLengthMs == 83_500)
+    #expect(result.metadata.fadeLengthMs == 4_250)
+}
+
+@Test func gameMusicHeaderReaderHarvestsNSFAndGBSTextWithoutEmulation() throws {
+    var nsf = Data(repeating: 0, count: 128)
+    nsf.replaceSubrange(0..<5, with: Data([0x4E, 0x45, 0x53, 0x4D, 0x1A]))
+    nsf[0x06] = 3
+    writeBytes(&nsf, at: 0x0E, value: "Famicom Quest")
+    writeBytes(&nsf, at: 0x2E, value: "Composer")
+    writeBytes(&nsf, at: 0x4E, value: "1989")
+    let nsfURL = try writeSPCTestFile(nsf, name: "quest.nsf")
+    defer { try? FileManager.default.removeItem(at: nsfURL) }
+
+    let nsfResult = try #require(try GameMusicMetadataReader.read(fileURL: nsfURL))
+    #expect(nsfResult.trackCount == 3)
+    #expect(nsfResult.metadata.game == "Famicom Quest")
+    #expect(nsfResult.metadata.author == "Composer")
+    #expect(nsfResult.metadata.comment == "1989")
+
+    var gbs = Data(repeating: 0, count: 0x70)
+    gbs.replaceSubrange(0..<3, with: Data("GBS".utf8))
+    gbs[0x04] = 5
+    writeBytes(&gbs, at: 0x10, value: "Pocket Quest")
+    writeBytes(&gbs, at: 0x30, value: "Composer")
+    let gbsURL = try writeSPCTestFile(gbs, name: "quest.gbs")
+    defer { try? FileManager.default.removeItem(at: gbsURL) }
+
+    let gbsResult = try #require(try GameMusicMetadataReader.read(fileURL: gbsURL))
+    #expect(gbsResult.trackCount == 5)
+    #expect(gbsResult.metadata.game == "Pocket Quest")
+    #expect(gbsResult.metadata.system == "Nintendo Game Boy")
+}
+
+@Test func vgmAndVGZReadersHarvestNativeGD3AndTiming() async throws {
+    var data = Data(repeating: 0, count: 0x40)
+    data.replaceSubrange(0..<4, with: Data("Vgm ".utf8))
+    writeLittleEndian(&data, at: 0x18, value: 44_100)
+    writeLittleEndian(&data, at: 0x1C, value: 1)
+    writeLittleEndian(&data, at: 0x20, value: 22_050)
+    let gd3Strings = ["Song", "", "Game", "", "System", "", "Artist", "", "", "", "Comment"]
+    var gd3Payload: [UInt8] = []
+    for string in gd3Strings {
+        for unit in string.utf16 {
+            gd3Payload.append(UInt8(unit & 0xFF))
+            gd3Payload.append(UInt8(unit >> 8))
+        }
+        gd3Payload.append(contentsOf: [0, 0])
+    }
+    var gd3 = Data("Gd3 ".utf8)
+    gd3.append(contentsOf: [0x00, 0x01, 0x00, 0x00])
+    gd3.append(contentsOf: littleEndianBytes(UInt32(gd3Payload.count)))
+    gd3.append(contentsOf: gd3Payload)
+    let gd3Offset = data.count - 0x14
+    writeLittleEndian(&data, at: 0x14, value: UInt32(gd3Offset))
+    data.append(gd3)
+
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("ScanSong-vgm-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let vgmURL = root.appendingPathComponent("Song.vgm")
+    let vgzURL = root.appendingPathComponent("Song.vgz")
+    try data.write(to: vgmURL)
+    try writeGZip(data, to: vgzURL)
+
+    let route = try #require(BuiltInScannerPlugins.registry.route(pathExtension: "vgm"))
+    let handler = try #require(BuiltInFormatInspectors.registry.handler(for: route))
+    for fixture in [vgmURL, vgzURL] {
+        let inspection = try await handler.inspect(
+            fileURL: fixture,
+            route: route
+        )
+        let metadata = try #require(inspection.tracks.first?.metadata)
+        #expect(metadata.song == "Song")
+        #expect(metadata.game == "Game")
+        #expect(metadata.author == "Artist")
+        #expect(metadata.playLengthMs == 1_000)
+        #expect(metadata.loopLengthMs == 500)
+    }
 }
 
 @Test func spcReaderParsesBinaryID666LengthAndFade() throws {
@@ -1031,4 +1169,21 @@ private func makeXID6Item(id: UInt8, type: UInt8, payload: [UInt8]) -> [UInt8] {
 
 private func littleEndianBytes(_ value: UInt32) -> [UInt8] {
     [UInt8(value & 0xFF), UInt8((value >> 8) & 0xFF), UInt8((value >> 16) & 0xFF), UInt8((value >> 24) & 0xFF)]
+}
+
+private func writeLittleEndian(_ data: inout Data, at offset: Int, value: UInt32) {
+    data.replaceSubrange(offset..<(offset + 4), with: littleEndianBytes(value))
+}
+
+private func writeGZip(_ data: Data, to url: URL) throws {
+    guard let handle = gzopen(url.path, "wb") else {
+        throw NSError(domain: "ScanSongTests", code: 1)
+    }
+    defer { _ = gzclose(handle) }
+    let written = data.withUnsafeBytes { bytes in
+        gzwrite(handle, bytes.baseAddress, UInt32(data.count))
+    }
+    guard written == data.count else {
+        throw NSError(domain: "ScanSongTests", code: 2)
+    }
 }

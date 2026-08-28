@@ -73,6 +73,16 @@ collapsed into one ignored-format bucket:
   chunk. Unknown xID6 item types are skipped after bounds validation, and
   binary/text ID666 layouts both contribute native timing without starting
   libgme for ordinary SPC metadata.
+- PSF-style QSF/GSF tags are harvested directly, including authored length and
+  fade values, before the required QSound/Highly Complete validation step.
+  NSF/GBS fixed headers similarly provide game, author, and copyright text while
+  libgme remains authoritative for their track timing and enumeration.
+- VGM and gzip-compressed VGZ GD3/timing data are harvested directly with a
+  bounded decompression limit; GYM and S98 remain on the libVGM route until
+  their native metadata structures have fixture-backed readers.
+- HES inspection applies a same-basename sibling `.m3u` when present. The
+  playlist is not catalogued as a track itself, but it maps raw HES address
+  slots to authored music/SFX tracks and their lengths.
 - Silent Hill: Shattered Memories `.ss2` members fail to open. `.ss2` is an
   established route, so these remain visible archive-member failures and are
   not ignored.

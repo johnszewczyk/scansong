@@ -8,7 +8,7 @@ executables.
 ## Ownership
 
 - VGMBoy owns decoder source, compatibility patches, dependency archives, and scanner-plugin builds.
-- ScanSong depends only on VGMBoy's lightweight `VGMBoyFormatCore` product
+- ScanSong depends on VGMBoy's lightweight `VGMBoyFormatCore` and `VGMBoySNDH` products
   for typed format admission; it does not link VGMBoyKit or native decoders.
 - `ScanSong/build-app.sh` asks VGMBoy to build the vgmstream CLI and Highly Complete inspector,
   then copies those products into the ScanSong bundle.
@@ -29,6 +29,9 @@ executables.
 
 - Dependency or plugin build failure stops packaging and leaves the previous installed app intact.
 - An unavailable staged inspector is reported by the scanner adapter and does not become a player
+- SNDH metadata is read through the shared `VGMBoySNDH` product; ScanSong owns only
+  route registration and catalog projection, while VGMBoy owns the PSGPlay source,
+  C bridge, and staged static library.
   launch or permission request.
 
 ## Files

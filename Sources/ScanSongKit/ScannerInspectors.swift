@@ -1,5 +1,7 @@
 import CGameMusicEmu
 import Foundation
+import VGMBoySNDH
+import zlib
 
 public enum ScannerInspectionError: LocalizedError {
     case unsupportedRoute(String)
@@ -40,6 +42,8 @@ public struct BuiltInFormatInspector: ScanFormatHandler {
             // libVGM's playlist-facing enumeration also produces one track.
             let metadata = try VGMTagReader.read(fileURL: fileURL)
             return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)])
+        case "psgplay":
+            return try SNDHInspector.inspect(fileURL: fileURL, route: route)
         case "standard-audio":
             let metadata = try StandardAudioInspector.inspect(fileURL: fileURL)
             return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)])
@@ -57,6 +61,33 @@ public struct BuiltInFormatInspector: ScanFormatHandler {
             }
             throw ScannerInspectionError.unsupportedRoute(route.pluginID)
         }
+    }
+}
+
+private enum SNDHInspector {
+    static func inspect(fileURL: URL, route: ScannerRoute) throws -> ScanInspection {
+        let source = try SNDHMetadataReader.read(fileURL: fileURL)
+        let tracks = source.tracks.map { track in
+            let song = track.subtuneName.isEmpty ? source.title : track.subtuneName
+            let length = max(0, track.durationMilliseconds)
+            let metadata = ScannerMetadata(
+                game: "",
+                song: song,
+                system: "Atari ST",
+                author: source.composer,
+                comment: source.year,
+                introLengthMs: 0,
+                loopLengthMs: 0,
+                playLengthMs: length,
+                fadeLengthMs: 0
+            )
+            return ScanTrackMetadata(
+                trackIndex: track.index,
+                trackCount: source.tracks.count,
+                metadata: metadata
+            )
+        }
+        return ScanInspection(route: route, tracks: tracks)
     }
 }
 
@@ -95,10 +126,18 @@ private enum GMEInspector {
         }
         defer { gme_delete(emulator) }
 
+        let companionPlaylistURL = route.formatExtension == "hes"
+            ? companionHESPlaylistURL(for: fileURL)
+            : nil
+        if let playlistURL = companionPlaylistURL {
+            try throwIfNeeded(playlistURL.path.withCString { gme_load_m3u(emulator, $0) })
+        }
+
         let count = Int(gme_track_count(emulator))
         guard count > 0 else {
             throw ScannerInspectionError.malformedFile("Game Music Emu found no tracks in \(fileURL.lastPathComponent).")
         }
+        let directHeader = try? GameMusicMetadataReader.read(fileURL: fileURL)
         let tracks = try (0..<count).map { index in
             var infoPointer: UnsafeMutablePointer<gme_info_t>?
             try throwIfNeeded(gme_track_info(emulator, &infoPointer, Int32(index)))
@@ -107,21 +146,22 @@ private enum GMEInspector {
             }
             defer { gme_free_info(infoPointer) }
             let info = infoPointer.pointee
-            let suppressUnverifiedHESTiming = route.formatExtension == "hes"
+            let suppressUnverifiedHESTiming = route.formatExtension == "hes" && companionPlaylistURL == nil
+            let decoderMetadata = ScannerMetadata(
+                game: string(info.game),
+                song: string(info.song),
+                system: string(info.system),
+                author: string(info.author),
+                comment: string(info.comment),
+                introLengthMs: suppressUnverifiedHESTiming ? 0 : Int(info.intro_length),
+                loopLengthMs: suppressUnverifiedHESTiming ? 0 : Int(info.loop_length),
+                playLengthMs: suppressUnverifiedHESTiming ? 0 : Int(info.play_length),
+                fadeLengthMs: suppressUnverifiedHESTiming ? 0 : Int(info.fade_length)
+            )
             return ScanTrackMetadata(
                 trackIndex: index,
                 trackCount: count,
-                metadata: ScannerMetadata(
-                    game: string(info.game),
-                    song: string(info.song),
-                    system: string(info.system),
-                    author: string(info.author),
-                    comment: string(info.comment),
-                    introLengthMs: suppressUnverifiedHESTiming ? 0 : Int(info.intro_length),
-                    loopLengthMs: suppressUnverifiedHESTiming ? 0 : Int(info.loop_length),
-                    playLengthMs: suppressUnverifiedHESTiming ? 0 : Int(info.play_length),
-                    fadeLengthMs: suppressUnverifiedHESTiming ? 0 : Int(info.fade_length)
-                )
+                metadata: directHeader?.merged(with: decoderMetadata) ?? decoderMetadata
             )
         }
         return ScanInspection(route: route, tracks: tracks)
@@ -136,12 +176,44 @@ private enum GMEInspector {
         let value = String(cString: pointer)
         return value == "?" ? "" : value
     }
+
+    private static func companionHESPlaylistURL(for fileURL: URL) -> URL? {
+        let baseURL = fileURL.deletingPathExtension()
+        let candidates = [
+            baseURL.appendingPathExtension("m3u"),
+            baseURL.appendingPathExtension("M3U")
+        ]
+        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+    }
 }
 
-private enum PSFTagReader {
+enum PSFTagReader {
     private static let maximumTagBytes = 1_048_576
 
+    struct Result {
+        let metadata: ScannerMetadata
+        let tags: [String: String]
+
+        func merged(with fallback: ScannerMetadata) -> ScannerMetadata {
+            ScannerMetadata(
+                game: tags["game"] ?? fallback.game,
+                song: tags["title"] ?? fallback.song,
+                system: fallback.system,
+                author: tags["artist"] ?? fallback.author,
+                comment: tags["comment"] ?? fallback.comment,
+                introLengthMs: fallback.introLengthMs,
+                loopLengthMs: fallback.loopLengthMs,
+                playLengthMs: tags["length"].map(PSFTagReader.milliseconds) ?? fallback.playLengthMs,
+                fadeLengthMs: tags["fade"].map(PSFTagReader.milliseconds) ?? fallback.fadeLengthMs
+            )
+        }
+    }
+
     static func read(fileURL: URL) throws -> ScannerMetadata? {
+        try readResult(fileURL: fileURL)?.metadata
+    }
+
+    static func readResult(fileURL: URL) throws -> Result? {
         let handle = try FileHandle(forReadingFrom: fileURL)
         defer { try? handle.close() }
         guard let header = try handle.read(upToCount: 16), header.count == 16,
@@ -157,7 +229,7 @@ private enum PSFTagReader {
                 tags = parseTags(footer.dropFirst(5))
             }
         }
-        return ScannerMetadata(
+        let metadata = ScannerMetadata(
             game: tags["game"] ?? "",
             song: tags["title"] ?? fileURL.deletingPathExtension().lastPathComponent,
             system: systemName(for: fileURL.pathExtension.lowercased()),
@@ -165,9 +237,10 @@ private enum PSFTagReader {
             comment: tags["comment"] ?? "",
             introLengthMs: 0,
             loopLengthMs: 0,
-            playLengthMs: milliseconds(tags["length"]),
-            fadeLengthMs: milliseconds(tags["fade"])
+            playLengthMs: tags["length"].map { milliseconds($0) } ?? 0,
+            fadeLengthMs: tags["fade"].map { milliseconds($0) } ?? 0
         )
+        return Result(metadata: metadata, tags: tags)
     }
 
     private static func littleEndianUInt32(_ data: Data, offset: Int) -> UInt32 {
@@ -186,6 +259,8 @@ private enum PSFTagReader {
 
     private static func systemName(for extensionName: String) -> String {
         switch extensionName {
+        case "gsf", "minigsf": return "Game Boy Advance"
+        case "qsf", "miniqsf": return "Capcom QSound"
         case "psf", "minipsf": return "Sony PlayStation"
         case "psf2", "minipsf2": return "Sony PlayStation 2"
         case "usf", "miniusf": return "Nintendo 64"
@@ -195,8 +270,7 @@ private enum PSFTagReader {
         }
     }
 
-    private static func milliseconds(_ value: String?) -> Int {
-        guard let value else { return 0 }
+    static func milliseconds(_ value: String) -> Int {
         let components = value.split(separator: ":", omittingEmptySubsequences: false)
         guard let seconds = components.last.flatMap({ Double($0) }) else { return 0 }
         let minutes = components.dropLast().reversed().enumerated().reduce(0.0) {
@@ -207,10 +281,17 @@ private enum PSFTagReader {
 }
 
 private enum VGMTagReader {
+    private static let maximumCompressedOutputBytes = 256 * 1_024 * 1_024
+
     static func read(fileURL: URL) throws -> ScannerMetadata? {
-        guard fileURL.pathExtension.lowercased() == "vgm" else { return nil }
-        let data = try Data(contentsOf: fileURL, options: .mappedIfSafe)
-        guard data.count >= 0x24, data.prefix(4) == Data("Vgm ".utf8) else { return nil }
+        let extensionName = fileURL.pathExtension.lowercased()
+        guard extensionName == "vgm" || extensionName == "vgz" else { return nil }
+        let data = try readData(fileURL: fileURL, isCompressed: extensionName == "vgz")
+        guard data.count >= 0x40, data.prefix(4) == Data("Vgm ".utf8) else {
+            throw ScannerInspectionError.malformedFile(
+                "Not a VGM file with a valid header: \(fileURL.lastPathComponent)"
+            )
+        }
         let gd3Relative = Int(littleEndianUInt32(data, at: 0x14))
         let totalSamples = Int(littleEndianUInt32(data, at: 0x18))
         let loopSamples = Int(littleEndianUInt32(data, at: 0x20))
@@ -245,6 +326,38 @@ private enum VGMTagReader {
             playLengthMs: totalMs,
             fadeLengthMs: 0
         )
+    }
+
+    private static func readData(fileURL: URL, isCompressed: Bool) throws -> Data {
+        guard isCompressed else {
+            return try Data(contentsOf: fileURL, options: .mappedIfSafe)
+        }
+
+        guard let handle = gzopen(fileURL.path, "rb") else {
+            throw ScannerInspectionError.malformedFile(
+                "Could not open compressed VGM: \(fileURL.lastPathComponent)"
+            )
+        }
+        defer { _ = gzclose(handle) }
+
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 64 * 1_024)
+        while true {
+            let count = gzread(handle, &buffer, UInt32(buffer.count))
+            if count < 0 {
+                throw ScannerInspectionError.malformedFile(
+                    "Could not decompress VGM: \(fileURL.lastPathComponent)"
+                )
+            }
+            if count == 0 { break }
+            guard data.count <= maximumCompressedOutputBytes - Int(count) else {
+                throw ScannerInspectionError.malformedFile(
+                    "Compressed VGM exceeds the scanner safety limit: \(fileURL.lastPathComponent)"
+                )
+            }
+            data.append(contentsOf: buffer.prefix(Int(count)))
+        }
+        return data
     }
 
     private static func littleEndianUInt32(_ data: Data, at offset: Int) -> UInt32 {

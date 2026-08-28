@@ -17,13 +17,17 @@ public struct QSFCLIInspector: ScanFormatHandler {
                     "QSF reported an invalid track count for \(fileURL.lastPathComponent)."
                 )
             }
+            let decoderMetadata = metadata.metadata(fileURL: fileURL)
+            let directTags = try? PSFTagReader.readResult(fileURL: fileURL)
+            let resolvedMetadata = directTags?.merged(with: decoderMetadata)
+                ?? decoderMetadata
             return ScanInspection(
                 route: route,
                 tracks: [
                     ScanTrackMetadata(
                         trackIndex: 0,
                         trackCount: 1,
-                        metadata: metadata.metadata(fileURL: fileURL)
+                        metadata: resolvedMetadata
                     )
                 ]
             )

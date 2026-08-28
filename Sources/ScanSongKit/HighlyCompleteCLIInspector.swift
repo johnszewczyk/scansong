@@ -25,9 +25,13 @@ public struct HighlyCompleteCLIInspector: ScanFormatHandler {
                 "Highly Complete reported an invalid track count (\(info.trackCount)) for \(fileURL.lastPathComponent)."
             )
         }
+        let decoderMetadata = info.metadata(fileURL: fileURL)
+        let directTags = try? PSFTagReader.readResult(fileURL: fileURL)
+        let resolvedMetadata = directTags?.merged(with: decoderMetadata)
+            ?? decoderMetadata
         return ScanInspection(
             route: route,
-            tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: info.metadata(fileURL: fileURL))]
+            tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: resolvedMetadata)]
         )
     }
 

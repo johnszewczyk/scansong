@@ -95,10 +95,14 @@ error.
 
 - ZIP, 7z, RAR/RSN, TAR.ZST, and TZST archives with bounded complete
   materialization, path/symlink validation, cancellation, and cleanup.
-- Native libgme enumeration and metadata for NSF, NSFE, GBS, AY, HES, KSS, SAP,
-  and related registered formats.
-- Direct bounded SPC ID666/xID6 harvesting, PSF footer-tag, plain VGM GD3/timing, and
-  Commodore 64 SID PSID/RSID header reads.
+- Native libgme enumeration and timing for NSF, NSFE, GBS, AY, HES, KSS, SAP,
+  and related registered formats, supplemented by direct NSF/GBS header metadata.
+- Direct bounded SPC ID666/xID6 harvesting, PSF-style footer tags (including
+  QSF/GSF length and fade tags), VGM/VGZ GD3/timing, and Commodore 64 SID
+  PSID/RSID header reads.
+- Direct SNDH tag/subtune/timing harvesting through VGMBoy's shared `VGMBoySNDH`
+  product. SNDH files are enumerated into their actual Atari ST subtunes; the
+  scanner does not start playback just to publish metadata.
 - Structurally known single rows for standard audio (including OGG Vorbis),
   modules, and registered formats whose optional metadata can remain empty.
 - Tracker/module rows (S3M, MOD, IT, XM, MTM, STM, and related) via

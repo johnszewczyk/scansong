@@ -150,9 +150,10 @@
   multi-member streaming tar path.
 - Archive paths, symlinks, member count/name size, and expanded bytes are
   validated before records are accepted.
-- Required adapters currently include libgme enumeration, in-process SPC ID666
-  and xID6 harvesting, PSF tags,
-  plain VGM metadata, direct Commodore 64 SID PSID/RSID header reads, the
+- Required adapters currently include libgme enumeration and timing, direct
+  NSF/GBS header harvesting, in-process SPC ID666 and xID6 harvesting, PSF-style
+  tags for PSF/QSF/GSF families, VGM/VGZ GD3 and timing reads, direct
+  Commodore 64 SID PSID/RSID header reads, the
   Core Audio standard-audio inspector for FLAC/Vorbis comments and exact
   decoded duration (with AVFoundation metadata fallback for other ordinary
   audio),
@@ -176,6 +177,12 @@
 - vgmstream extensions and admission roles come from VGMBoy's database-free
   `VGMBoyFormatCore`; ScanSong retains native inspection, archive handling, and
   schema-23 publication ownership.
+- SNDH admission uses the direct `psgplay` route and the shared `VGMBoySNDH`
+  metadata product. Each declared subtune becomes one scanner track with its
+  SNDH timing; the PSG engine is not started during metadata inspection.
+- HES inspection applies a same-basename sibling `.m3u` when one is present.
+  The playlist remains a non-track support file, while its authored track
+  mapping and timing determine the HES rows published by the scanner.
 - Native CLI inspectors share one bounded process runner with a 30-second
   deadline, 4 MiB stdout, 256 KiB stderr, concurrent draining, and cancellation
   termination. Decoder-family adapters remain separate files.

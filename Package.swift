@@ -24,7 +24,8 @@ let package = Package(
             name: "ScanSongKit",
             dependencies: [
                 "CGameMusicEmu",
-                .product(name: "VGMBoyFormatCore", package: "VGMBoy")
+                .product(name: "VGMBoyFormatCore", package: "VGMBoy"),
+                .product(name: "VGMBoySNDH", package: "VGMBoy")
             ],
             linkerSettings: [
                 .linkedLibrary("sqlite3"),
