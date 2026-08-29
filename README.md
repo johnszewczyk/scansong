@@ -142,6 +142,11 @@ error.
   dependency is present in the extracted source archive; every validated file
   becomes its real single playable row.
 
+The complete per-plugin contract—including route policy, native metadata
+source, dependency and archive handling, multi-track expansion, playback
+boundaries, and retained failure behavior—is maintained in
+[`ai/subsystem-agent/format-accommodations.md`](/Users/john/Downloads/Code/VGMMan/ScanSong/ai/subsystem-agent/format-accommodations.md).
+
 Decoder provenance and milestone versions are maintained centrally by VGMBoy
 in [`Docs/plugin-versions.json`](/Users/john/Downloads/Code/VGMMan/VGMBoy/Docs/plugin-versions.json).
 ScanSong consumes the staged scanner products and does not maintain a second

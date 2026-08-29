@@ -86,7 +86,8 @@
 - Discovery does not invent playable rows for unrelated files without a scanner
   route. Archive members with an unknown extension are retained in the optional
   post-operation skip inventory as unsupported-format diagnostics; known decoder
-  support/dependency sidecars remain silent, and corrupt routed files remain
+  support/dependency sidecars such as `.2sflib`, `.gsflib`, `.psflib`, `.qsflib`,
+  `.ssflib`, and `.usflib` remain silent, and corrupt routed files remain
   distinct failure cases.
 - Ignoring an extension is not a corruption filter. Supported routed members are
   always inspected; malformed members produce retained `ScanFailure` rows and
@@ -218,5 +219,6 @@
 - [TXTPDependencyResolver.swift](/Users/john/Downloads/Code/VGMMan/ScanSong/Sources/ScanSongKit/TXTPDependencyResolver.swift)
 - [ArchiveMemberEnumerator.swift](/Users/john/Downloads/Code/VGMMan/ScanSong/Sources/ScanSongKit/ArchiveMemberEnumerator.swift)
 - [StandaloneArchiveExtractor.swift](/Users/john/Downloads/Code/VGMMan/ScanSong/Sources/ScanSongKit/StandaloneArchiveExtractor.swift)
+- [format-accommodations.md](/Users/john/Downloads/Code/VGMMan/ScanSong/ai/subsystem-agent/format-accommodations.md)
 - [ScanSongCommand.swift](/Users/john/Downloads/Code/VGMMan/ScanSong/Sources/scansong/ScanSongCommand.swift)
 - [ScanSongApp.swift](/Users/john/Downloads/Code/VGMMan/ScanSong/Sources/ScanSongApp/ScanSongApp.swift)

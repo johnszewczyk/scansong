@@ -48,7 +48,8 @@ public struct StandaloneArchiveExtractor: Sendable {
     // scan sources. This list mirrors ArchiveMemberEnumerator's archive-side
     // dependency policy and also applies to standalone .zst wrappers.
     private static let supportFileExtensions: Set<String> = [
-        "bd", "gsflib", "pdx", "psflib", "qsflib", "sbb", "txth", "txt"
+        "2sflib", "bd", "gsflib", "pdx", "psflib", "qsflib", "ssflib",
+        "sbb", "txth", "txt", "usflib"
     ]
 
     private var fileManager: FileManager { .default }

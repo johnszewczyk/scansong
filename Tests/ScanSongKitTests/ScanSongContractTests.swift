@@ -29,6 +29,9 @@ import zlib
     #expect(StandaloneArchiveExtractor.isSupportedArchive(URL(fileURLWithPath: "track.vgm.zst")))
     #expect(StandaloneArchiveExtractor.isSupportedArchive(URL(fileURLWithPath: "set.tar.zst")))
     #expect(StandaloneArchiveExtractor.isStandaloneSupportFile(URL(fileURLWithPath: "bank.PDX.zst")))
+    for sidecar in ["bank.2sflib.zst", "bank.ssflib.zst", "bank.usflib.zst"] {
+        #expect(StandaloneArchiveExtractor.isStandaloneSupportFile(URL(fileURLWithPath: sidecar)))
+    }
     #expect(!StandaloneArchiveExtractor.isStandaloneSupportFile(URL(fileURLWithPath: "track.MDX.zst")))
     #expect(StandaloneArchiveExtractor.standaloneEntryPath(
         for: URL(fileURLWithPath: "track.vgm.zst"),
@@ -213,6 +216,9 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     try Data([0]).write(to: root.appendingPathComponent("notes.xyz"))
     try Data([0]).write(to: root.appendingPathComponent("music.qsflib"))
+    try Data([0]).write(to: root.appendingPathComponent("music.usflib"))
+    try Data([0]).write(to: root.appendingPathComponent("music.ssflib"))
+    try Data([0]).write(to: root.appendingPathComponent("music.2sflib"))
     try Data([0]).write(to: root.appendingPathComponent("music.sbb"))
     try Data([0]).write(to: root.appendingPathComponent("ReadMe.TXT"))
     try Data([0]).write(to: root.appendingPathComponent("extensionless"))
