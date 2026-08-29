@@ -7,7 +7,7 @@ struct ArchiveMemberEnumerator {
     // sources themselves. They must stay out of the unrecognized inventory so
     // archives do not produce one diagnostic per decoder sidecar.
     private static let supportFileExtensions: Set<String> = [
-        "bd", "gsflib", "psflib", "qsflib", "sbb", "txth", "txt"
+        "bd", "gsflib", "pdx", "psflib", "qsflib", "sbb", "txth", "txt"
     ]
 
     init(fileManager: FileManager = .default) {

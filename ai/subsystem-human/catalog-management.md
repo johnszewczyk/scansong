@@ -47,7 +47,14 @@
 - Scan item progress counts top-level sources: a loose file or an archive. An
   archive member may update the current-file display, but never advances the
   source/archive counter. Multi-root scans discover all roots once before
-  inspection so the displayed denominator remains stable.
+  inspection so the displayed denominator remains stable. Completed-source
+  progress is monotonic even while archive-member detail callbacks are being
+  sampled. Standalone `.pdx.zst` sidecars are not source items; they are
+  prepared when their owning `.mdx.zst` is inspected. A completion summary's
+  scanned/reused values count sources. The completion line separates source
+  failures from member failure records, because one scanned archive can have
+  several failed members; those values are not expected to add up as one flat
+  source count.
 - Adding scan paths is an asynchronous catalog operation. The UI shows an
   indeterminate Add Path state while the catalog is opened and refreshed, so
   database work does not block the main window.

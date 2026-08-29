@@ -107,7 +107,10 @@
 - Scan progress is source-level: each loose file or archive is one work item;
   archive-member inspection updates detail/current-path only. Multi-root
   callers use the session scan API, which discovers every root once and then
-  reports one stable aggregate source total.
+  reports one stable aggregate source total. `scanned`/`reused` are source
+  counts; the completion log separates source failures from archive-member
+  failure records, so one scanned archive can legitimately contribute several
+  member failures.
 
 ## Concurrency and Failure Boundaries
 
@@ -146,8 +149,16 @@
   standalone `name.ext.zst` or `name.ext.zstd` is admitted only when `ext` is
   a registered playable format; its basename is the single implicit member
   name, and Zstandard writes that one payload into disposable scan scratch.
-  It is not treated as a complete dependency set. TAR.ZST remains the
-  multi-member streaming tar path.
+  MDX is the explicit dependency exception: when the decompressed MDX header
+  declares a PDX, ScanSong resolves a case-insensitive sibling `name.PDX`,
+  `name.PDX.zst`, or `name.PDX.zstd`, materializes the bank beside the MDX,
+  and invokes the same VGMBoy inspector. If the library stores the bank in a
+  different subfolder, the scanner may use a deterministic, root-scoped PDX
+  index: nearest shared folder, uncompressed before compressed, then lexical
+  path order. It never searches outside the supplied scan root. The PDX wrapper
+  is suppressed from discovery and never becomes a scanner track. Missing
+  declared banks remain explicit MDX failures. TAR.ZST remains the multi-member
+  streaming tar path.
 - Archive paths, symlinks, member count/name size, and expanded bytes are
   validated before records are accepted.
 - Required adapters currently include libgme enumeration and timing, direct
@@ -183,6 +194,12 @@
   file's declared `track_count`. The PSG engine is not started during metadata
   inspection. Playback selection is validated separately in VGMBoy because
   scanner publication alone cannot prove that a native subtune can restart.
+- MDX admission uses the VGMBoy-built `vgmboy-mdx-inspect` process adapter.
+  Every `.mdx` source publishes exactly one logical track. A `.pdx` member is
+  sidecar sample data, not a playable source or scanner track; MDX inspection
+  fails when a declared PDX dependency is absent. Standalone compressed MDX
+  sources receive special dependency preparation: their adjacent compressed
+  PDX sibling is decompressed into the same scratch set before inspection.
 - HES inspection applies a same-basename sibling `.m3u` when one is present.
   The playlist remains a non-track support file, while its authored track
   mapping and timing determine the HES rows published by the scanner.

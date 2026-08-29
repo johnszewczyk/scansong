@@ -545,6 +545,12 @@ public enum ScanFilesystemDiscovery {
                 skipped.append(ScanSkippedFile(identity: identity, extensionName: extensionName, reason: .explicitlyIgnored))
                 continue
             }
+            // A standalone compressed PDX is a companion bank for a nearby
+            // MDX, not an archive or playable source in its own right. It is
+            // decompressed on demand when the owning MDX is inspected.
+            if StandaloneArchiveExtractor.isStandaloneSupportFile(child) {
+                continue
+            }
             let route = registry.route(for: child.pathExtension)
             guard isArchive(child) || route != nil else { continue }
             candidates.append(ScanCandidate(

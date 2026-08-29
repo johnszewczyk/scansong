@@ -105,6 +105,9 @@ public enum BuiltInFormatInspectors {
                 if descriptor.pluginID == "qsf" || descriptor.pluginID == "qsf-mini" {
                     return QSFCLIInspector(descriptor: descriptor)
                 }
+                if descriptor.pluginID == "mdx" {
+                    return MDXCLIInspector(descriptor: descriptor)
+                }
                 return BuiltInFormatInspector(descriptor: descriptor)
             }
     )

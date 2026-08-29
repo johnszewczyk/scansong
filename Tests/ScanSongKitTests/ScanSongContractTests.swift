@@ -16,6 +16,9 @@ import zlib
     #expect(registry.route(pathExtension: "sndh")?.pluginID == "psgplay")
     #expect(registry.route(pathExtension: "sndh")?.structurePolicy == .enumerate)
     #expect(registry.route(pathExtension: "sndh")?.metadataPolicy == .direct)
+    #expect(registry.route(pathExtension: "mdx")?.pluginID == "mdx")
+    #expect(registry.route(pathExtension: "mdx")?.structurePolicy == .knownSingle)
+    #expect(registry.route(pathExtension: "pdx") == nil)
     #expect(registry.route(pathExtension: "ogg")?.metadataPolicy == .direct)
     #expect(registry.route(pathExtension: "ogg")?.pluginID == "standard-audio")
     #expect(registry.route(pathExtension: "ogg")?.pluginID != "vgmstream")
@@ -25,6 +28,8 @@ import zlib
     #expect(BuiltInScannerPlugins.archiveExtensions.contains("zst"))
     #expect(StandaloneArchiveExtractor.isSupportedArchive(URL(fileURLWithPath: "track.vgm.zst")))
     #expect(StandaloneArchiveExtractor.isSupportedArchive(URL(fileURLWithPath: "set.tar.zst")))
+    #expect(StandaloneArchiveExtractor.isStandaloneSupportFile(URL(fileURLWithPath: "bank.PDX.zst")))
+    #expect(!StandaloneArchiveExtractor.isStandaloneSupportFile(URL(fileURLWithPath: "track.MDX.zst")))
     #expect(StandaloneArchiveExtractor.standaloneEntryPath(
         for: URL(fileURLWithPath: "track.vgm.zst"),
         registry: registry
@@ -45,6 +50,27 @@ import zlib
     #expect(ScannerFormatPolicy.defaultIgnoredExtensions.contains("sgc"))
     #expect(ScannerFormatPolicy.defaultIgnoredExtensions.contains("minincsf"))
     #expect(ScannerFormatPolicy.defaultIgnoredExtensions.contains("mus"))
+}
+
+@Test(
+    "MDX fixture publishes one native-duration track",
+    .enabled(
+        if: ProcessInfo.processInfo.environment["SCANSONG_MDX_FIXTURE"] != nil
+            && ProcessInfo.processInfo.environment["SCANSONG_MDX_INSPECT"] != nil,
+        "Set SCANSONG_MDX_FIXTURE and SCANSONG_MDX_INSPECT to run the MDX scanner check."
+    )
+)
+func mdxFixtureInspectsThroughVGMBoy() async throws {
+    let path = try #require(ProcessInfo.processInfo.environment["SCANSONG_MDX_FIXTURE"])
+    let fileURL = URL(fileURLWithPath: path)
+    let route = try #require(BuiltInScannerPlugins.registry.route(pathExtension: fileURL.pathExtension))
+    let handler = try #require(BuiltInFormatInspectors.registry.handler(for: route))
+    let inspection = try await handler.inspect(fileURL: fileURL, route: route)
+    #expect(inspection.tracks.count == 1)
+    #expect(inspection.tracks.first?.trackIndex == 0)
+    #expect(inspection.tracks.first?.trackCount == 1)
+    #expect((inspection.tracks.first?.metadata?.playLengthMs ?? 0) > 0)
+    #expect(inspection.tracks.first?.metadata?.system == "Sharp X68000")
 }
 
 @Test(
@@ -476,6 +502,7 @@ func spcFixturesPublishNativeLengths() async throws {
     #expect(updates.filter { $0.phase != .discovery }.allSatisfy { $0.discovered == 2 })
     #expect(updates.last?.discovered == 2)
     #expect(updates.last?.processed == 2)
+    #expect(zip(updates, updates.dropFirst()).allSatisfy { $0.0.processed <= $0.1.processed })
 }
 
 @Test func dryRunReportsTypedRoutesWithoutWritingADataStore() throws {
@@ -777,6 +804,112 @@ func spcFixturesPublishNativeLengths() async throws {
     defer { StandaloneArchiveExtractor().discard(extracted) }
     #expect(extracted.members.map(\.entryPath) == ["track.vgm"])
     #expect(String(data: try Data(contentsOf: extracted.members[0].fileURL), encoding: .utf8) == "standalone-vgm-payload")
+}
+
+@Test func standaloneMDXZstandardMaterializesItsCompressedPDXSibling() async throws {
+    let zstandardPath = ["/opt/homebrew/bin/zstd", "/usr/local/bin/zstd", "/usr/bin/zstd"]
+        .first(where: { FileManager.default.isExecutableFile(atPath: $0) })
+    guard let zstandardPath else { return }
+
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("ScanSong-standalone-mdx-pdx-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    var mdx = Data("[TITLE] Test MDX\r\n".utf8)
+    mdx.append(contentsOf: [0x1A])
+    mdx.append(contentsOf: Data("foo.pdx".utf8))
+    mdx.append(0)
+    mdx.append(contentsOf: [0, 0, 0, 0])
+    let pdx = Data(repeating: 0x5A, count: 1_024)
+    let rawMDX = root.appendingPathComponent("song.MDX")
+    let rawPDX = root.appendingPathComponent("FOO.PDX")
+    try mdx.write(to: rawMDX)
+    try pdx.write(to: rawPDX)
+
+    func compress(_ source: URL, to destination: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: zstandardPath)
+        process.arguments = ["-q", "-f", source.path, "-o", destination.path]
+        try process.run()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+    }
+    let mdxArchive = root.appendingPathComponent("song.MDX.zst")
+    let pdxArchive = root.appendingPathComponent("FOO.PDX.zst")
+    try compress(rawMDX, to: mdxArchive)
+    try compress(rawPDX, to: pdxArchive)
+    try FileManager.default.removeItem(at: rawMDX)
+    try FileManager.default.removeItem(at: rawPDX)
+
+    let report = try await ScanFilesystemDiscovery.discoverReport(
+        rootID: 1,
+        rootURL: root,
+        registry: BuiltInScannerPlugins.registry,
+        isArchive: StandaloneArchiveExtractor.isSupportedArchive
+    )
+    #expect(report.candidates.map(\.sourceURL.lastPathComponent) == ["song.MDX.zst"])
+
+    let extracted = try await StandaloneArchiveExtractor().extractForScan(
+        archiveURL: mdxArchive,
+        registry: BuiltInScannerPlugins.registry
+    )
+    defer { StandaloneArchiveExtractor().discard(extracted) }
+    #expect(extracted.members.map(\.entryPath) == ["song.MDX"])
+    let materializedPDX = extracted.scratchURL
+        .appendingPathComponent("payload", isDirectory: true)
+        .appendingPathComponent("foo.pdx")
+    #expect(try Data(contentsOf: materializedPDX) == pdx)
+}
+
+@Test func standaloneMDXResolvesRootScopedShiftJISPDXDependency() async throws {
+    let zstandardPath = ["/opt/homebrew/bin/zstd", "/usr/local/bin/zstd", "/usr/bin/zstd"]
+        .first(where: { FileManager.default.isExecutableFile(atPath: $0) })
+    guard let zstandardPath else { return }
+
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("ScanSong-mdx-root-pdx-\(UUID().uuidString)", isDirectory: true)
+    let bankDirectory = root.appendingPathComponent("PDX Banks", isDirectory: true)
+    try FileManager.default.createDirectory(at: bankDirectory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let dependencyName = "音楽.pdx"
+    var mdx = Data("[TITLE] Shift-JIS MDX\r\n".utf8)
+    mdx.append(contentsOf: [0x1A])
+    mdx.append(contentsOf: try #require(dependencyName.data(using: .shiftJIS)))
+    mdx.append(0)
+    mdx.append(contentsOf: [0, 0, 0, 0])
+    let pdx = Data(repeating: 0x3C, count: 1_024)
+    let rawMDX = root.appendingPathComponent("song.MDX")
+    let rawPDX = bankDirectory.appendingPathComponent(dependencyName.uppercased())
+    try mdx.write(to: rawMDX)
+    try pdx.write(to: rawPDX)
+
+    func compress(_ source: URL, to destination: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: zstandardPath)
+        process.arguments = ["-q", "-f", source.path, "-o", destination.path]
+        try process.run()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+    }
+    let mdxArchive = root.appendingPathComponent("song.MDX.zst")
+    let pdxArchive = bankDirectory.appendingPathComponent("\(dependencyName.uppercased()).zst")
+    try compress(rawMDX, to: mdxArchive)
+    try compress(rawPDX, to: pdxArchive)
+    try FileManager.default.removeItem(at: rawMDX)
+    try FileManager.default.removeItem(at: rawPDX)
+
+    let extracted = try await StandaloneArchiveExtractor().extractForScan(
+        archiveURL: mdxArchive,
+        registry: BuiltInScannerPlugins.registry,
+        dependencySearchRoot: root
+    )
+    defer { StandaloneArchiveExtractor().discard(extracted) }
+    let materializedPDX = extracted.scratchURL
+        .appendingPathComponent("payload", isDirectory: true)
+        .appendingPathComponent(dependencyName)
+    #expect(try Data(contentsOf: materializedPDX) == pdx)
 }
 
 @Test func catalogBrowserSystemComesOnlyFromTheCollectionPath() {

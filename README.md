@@ -46,7 +46,7 @@ Removing a scan path only detaches it and retains its records.
 
 Each path shows its last scan time, source count, active track count, and issue
 count. Its last-result log uses uniform `status | detail | path` rows. It records
-the root summary, actual failures, and compact ignored/unrecognized diagnostics;
+the root summary, actual failure records, and compact ignored/unrecognized diagnostics;
 successful archive members are never expanded into a file list, while an
 archive-member failure keeps its `archive#member` path. Scanner-owned scratch
 prefixes are removed from diagnostic details so the archive member path remains
@@ -110,6 +110,21 @@ error.
   failures, including 4-Mat's eight-subtune Shadow Dancer; this remains decoder
   evidence, not a claim that every file in the 5,897-file Atari ST corpus is
   conventional music or supported.
+- MDX modules through the VGMBoy-built `vgmboy-mdx-inspect` adapter. Each MDX
+  publishes one logical track with its native duration and title; adjacent PDX
+  sample banks are dependency data and are not published as standalone rows.
+  The X68000 library commonly stores these as separate `name.MDX.zst` and
+  `name.PDX.zst` files. For a compressed MDX, ScanSong reads the MDX header,
+  resolves its declared PDX beside the source case-insensitively, decompresses
+  both into the same disposable scratch directory, and then invokes the
+  VGMBoy inspector. A PDX wrapper is therefore not an independent scan item;
+  a declared bank that is absent remains an explicit MDX failure. Some X68000
+  libraries keep banks in a separate subfolder rather than beside each module;
+  MDX dependency names are read using the format's legacy Shift-JIS encoding;
+  when a scan root is supplied, ScanSong builds one root-scoped PDX index and
+  resolves the closest matching bank deterministically (local sibling first,
+  then nearest shared folder, then stable path order). It never searches outside
+  the supplied scan root or invents a bank from another scan.
 - Structurally known single rows for standard audio (including OGG Vorbis),
   modules, and registered formats whose optional metadata can remain empty.
 - Tracker/module rows (S3M, MOD, IT, XM, MTM, STM, and related) via
@@ -127,11 +142,20 @@ error.
   dependency is present in the extracted source archive; every validated file
   becomes its real single playable row.
 
+Decoder provenance and milestone versions are maintained centrally by VGMBoy
+in [`Docs/plugin-versions.json`](/Users/john/Downloads/Code/VGMMan/VGMBoy/Docs/plugin-versions.json).
+ScanSong consumes the staged scanner products and does not maintain a second
+decoder-version list. Run VGMBoy's read-only audit before a release or after
+the documented review interval; adopting a newer decoder still requires
+rebuilding the scanner product and running its format-specific fixtures.
+
 Standalone Zstandard inputs use the explicit `name.ext.zst` or
 `name.ext.zstd` convention: `ext` is the required inner playable format name,
 and the scan produces one implicit member. A bare `file.zst` with no inferable
 playable suffix is rejected. `*.tar.zst` and `*.tar.zstd` are always treated as
-multi-member TAR containers.
+multi-member TAR containers. MDX is the intentional exception to the
+single-payload rule: a `name.MDX.zst` may require a separately compressed
+`name.PDX.zst` sibling, which is materialized only as MDX dependency data.
 
 ScanSong does not yet embed every playback codec. Each intake plugin owns
 its structural and metadata boundary and returns only tracks it actually opens.

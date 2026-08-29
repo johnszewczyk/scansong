@@ -51,7 +51,9 @@ enum ScannerScanLogStore {
         if let terminal, !terminal.isEmpty {
             resultText = terminal
         } else if let result {
-            resultText = "\(result.discoveredSourceCount) discovered, \(result.trackCount) tracks, \(result.reusedSourceCount) reused, \(result.skipped.count) skipped"
+            let sourceFailures = result.failures.filter { $0.identity.archiveEntry == nil }.count
+            let memberFailures = result.failures.count - sourceFailures
+            resultText = "\(result.discoveredSourceCount) discovered, \(result.scannedSourceCount) scanned, \(result.trackCount) tracks, \(result.reusedSourceCount) reused, \(sourceFailures) source failures, \(memberFailures) member failures, \(result.skipped.count) skipped"
         } else {
             resultText = "\(tally.sourceCount) files, \(root.lastScanTrackCount) tracks"
         }

@@ -20,6 +20,7 @@ public enum BuiltInScannerPlugins {
         .init(pluginID: "ffmpeg-audio", displayName: "FFmpeg", supportedExtensions: ["ape"], structurePolicy: .knownSingle, metadataPolicy: .optionalDeferred, priority: 10),
         .init(pluginID: "libvgm", displayName: "libVGM", supportedExtensions: ["gym", "s98", "vgm", "vgz"], structurePolicy: .enumerate, metadataPolicy: .decoder, priority: 10),
         .init(pluginID: "psgplay", displayName: "PSGPlay", supportedExtensions: ["sndh"], structurePolicy: .enumerate, metadataPolicy: .direct, priority: 10),
+        .init(pluginID: "mdx", displayName: "mdxmini", supportedExtensions: ["mdx"], structurePolicy: .knownSingle, metadataPolicy: .decoder, priority: 10),
         .init(pluginID: "highly-complete", displayName: "Highly Complete", supportedExtensions: ["gsf", "minigsf"], structurePolicy: .dependencyEnumerate, metadataPolicy: .decoder, priority: 10),
         .init(pluginID: "highly-theoretical", displayName: "Highly Theoretical", supportedExtensions: ["ssf", "minissf"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 10),
         .init(pluginID: "lazyusf", displayName: "LazyUSF", supportedExtensions: ["usf", "miniusf"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 10),

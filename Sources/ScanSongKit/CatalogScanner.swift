@@ -1,5 +1,21 @@
 import Foundation
 
+private final class MonotonicScanProgress: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completed = 0
+
+    init(completed: Int) {
+        self.completed = completed
+    }
+
+    func advance(to value: Int) -> Int {
+        lock.withLock {
+            completed = max(completed, value)
+            return completed
+        }
+    }
+}
+
 public struct CatalogScanProgress: Sendable {
     public let phase: ScanLifecyclePhase
     public let rootPath: String
@@ -119,17 +135,19 @@ public final class CatalogScanner: @unchecked Sendable {
         var skipped: [ScanSkippedFile] = []
         var discovered = 0
         let timeline = ScanPhaseTimeline()
+        let monotonicProgress = MonotonicScanProgress(completed: 0)
 
         func emit(_ phase: ScanLifecyclePhase, currentPath: String? = nil) {
+            let visibleProcessed = monotonicProgress.advance(to: processed)
             progress?(CatalogScanProgress(
                 phase: phase,
                 rootPath: root.path,
                 currentPath: currentPath,
                 discovered: discovered,
-                processed: processed,
-                successful: processed - failures.count,
+                processed: visibleProcessed,
+                successful: max(0, visibleProcessed - failures.count),
                 failed: failures.count,
-                phaseCompleted: processed,
+                phaseCompleted: visibleProcessed,
                 phaseTotal: discovered
             ))
         }
@@ -200,17 +218,21 @@ public final class CatalogScanner: @unchecked Sendable {
             let outcomes = try await inspectPending(
                 pending,
                 pipelineLimit: archivePipelineLimit,
+                dependencySearchRoot: rootURL,
                 progress: { [progress, rootPath = root.path, discovered, inspectionProcessed, inspectionFailed] phase, currentPath, detail, phaseCompleted, _ in
                     let globalPhaseCompleted = phaseCompleted.map {
                         min(discovered, inspectionProcessed + $0)
                     }
+                    let visibleProcessed = monotonicProgress.advance(
+                        to: globalPhaseCompleted ?? inspectionProcessed
+                    )
                     progress?(CatalogScanProgress(
                         phase: phase,
                         rootPath: rootPath,
                         currentPath: currentPath,
                         discovered: discovered,
-                        processed: globalPhaseCompleted ?? inspectionProcessed,
-                        successful: (globalPhaseCompleted ?? inspectionProcessed) - inspectionFailed,
+                        processed: visibleProcessed,
+                        successful: max(0, visibleProcessed - inspectionFailed),
                         failed: inspectionFailed,
                         detail: detail,
                         phaseCompleted: globalPhaseCompleted,
@@ -253,7 +275,9 @@ public final class CatalogScanner: @unchecked Sendable {
                         failure: failure
                     )
                     failures.append(failure)
-                case .cancelled, nil:
+                case .cancelled:
+                    throw CancellationError()
+                case nil:
                     throw CancellationError()
                 }
                 processed += 1
@@ -271,8 +295,8 @@ public final class CatalogScanner: @unchecked Sendable {
                     rootPath: root.path,
                     currentPath: nil,
                     discovered: publicationDiscovered,
-                    processed: publicationProcessed,
-                    successful: publicationProcessed - publicationFailed,
+                    processed: monotonicProgress.advance(to: publicationProcessed),
+                    successful: max(0, publicationProcessed - publicationFailed),
                     failed: publicationFailed,
                     detail: detail,
                     phaseCompleted: completed,
@@ -341,7 +365,7 @@ public final class CatalogScanner: @unchecked Sendable {
                 processed: 0,
                 successful: 0,
                 failed: 0,
-                detail: "Counted (discoveredSoFar) sources…"
+                detail: "Counted \(discoveredSoFar) sources…"
             ))
         }
 
@@ -354,7 +378,7 @@ public final class CatalogScanner: @unchecked Sendable {
             processed: 0,
             successful: 0,
             failed: 0,
-            detail: "Discovered (total) sources across (prepared.count) roots",
+            detail: "Discovered \(total) sources across \(prepared.count) roots",
             phaseCompleted: 0,
             phaseTotal: total
         ))
@@ -412,6 +436,7 @@ public final class CatalogScanner: @unchecked Sendable {
     private func inspectPending(
         _ pending: [ScanCandidate],
         pipelineLimit: Int,
+        dependencySearchRoot: URL,
         progress: @escaping @Sendable (ScanLifecyclePhase, String?, String?, Int?, Int?) -> Void
     ) async throws -> [String: CandidateInspectionOutcome] {
         var outcomes: [String: CandidateInspectionOutcome] = [:]
@@ -426,7 +451,11 @@ public final class CatalogScanner: @unchecked Sendable {
                     next += 1
                     inFlight += 1
                     group.addTask {
-                        let outcome = await self.inspectCandidate(candidate, progress: progress)
+                        let outcome = await self.inspectCandidate(
+                            candidate,
+                            dependencySearchRoot: dependencySearchRoot,
+                            progress: progress
+                        )
                         return (candidate.identity.path, outcome)
                     }
                 }
@@ -443,6 +472,7 @@ public final class CatalogScanner: @unchecked Sendable {
 
     private func inspectCandidate(
         _ candidate: ScanCandidate,
+        dependencySearchRoot: URL,
         progress: @escaping @Sendable (ScanLifecyclePhase, String?, String?, Int?, Int?) -> Void
     ) async -> CandidateInspectionOutcome {
         do {
@@ -451,7 +481,11 @@ public final class CatalogScanner: @unchecked Sendable {
             if StandaloneArchiveExtractor.isSupportedArchive(candidate.sourceURL) {
                 inspection = try await archiveExtractionScheduler.withPermit {
                     progress(.archiveListing, candidate.identityDescription, "Extracting \(candidate.sourceURL.lastPathComponent)…", nil, nil)
-                    return try await self.inspectArchive(candidate, progress: progress)
+                    return try await self.inspectArchive(
+                        candidate,
+                        dependencySearchRoot: dependencySearchRoot,
+                        progress: progress
+                    )
                 }
             } else {
                 let records = try await inspectLoose(candidate)
@@ -493,12 +527,14 @@ public final class CatalogScanner: @unchecked Sendable {
 
     private func inspectArchive(
         _ candidate: ScanCandidate,
+        dependencySearchRoot: URL,
         progress: @escaping @Sendable (ScanLifecyclePhase, String?, String?, Int?, Int?) -> Void
     ) async throws -> CandidateInspection {
         let archive = try await archiveExtractor.extractForScan(
             archiveURL: candidate.sourceURL,
             registry: registry,
-            ignoredFileExtensions: ignoredFileExtensions
+            ignoredFileExtensions: ignoredFileExtensions,
+            dependencySearchRoot: dependencySearchRoot
         )
         defer { archiveExtractor.discard(archive) }
         progress(.materialization, candidate.identityDescription, "Materialized \(archive.members.count) playable members", nil, nil)

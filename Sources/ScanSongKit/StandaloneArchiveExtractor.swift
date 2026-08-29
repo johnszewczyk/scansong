@@ -44,9 +44,19 @@ public struct StandaloneArchiveExtractor: Sendable {
     public static let maximumMemberCount = 100_000
     public static let maximumExpandedBytes: Int64 = 8 * 1_024 * 1_024 * 1_024
 
-    private var fileManager: FileManager { .default }
+    // Companion files are inputs to another playable member, not standalone
+    // scan sources. This list mirrors ArchiveMemberEnumerator's archive-side
+    // dependency policy and also applies to standalone .zst wrappers.
+    private static let supportFileExtensions: Set<String> = [
+        "bd", "gsflib", "pdx", "psflib", "qsflib", "sbb", "txth", "txt"
+    ]
 
-    public init() {}
+    private var fileManager: FileManager { .default }
+    private let dependencyIndex: MDXDependencyIndex
+
+    public init() {
+        dependencyIndex = MDXDependencyIndex()
+    }
 
     public static func isSupportedArchive(_ url: URL) -> Bool {
         let name = url.lastPathComponent.lowercased()
@@ -78,7 +88,8 @@ public struct StandaloneArchiveExtractor: Sendable {
     public func extractForScan(
         archiveURL: URL,
         registry: ScannerPluginRegistry = BuiltInScannerPlugins.registry,
-        ignoredFileExtensions: Set<String> = []
+        ignoredFileExtensions: Set<String> = [],
+        dependencySearchRoot: URL? = nil
     ) async throws -> ExtractedScanArchive {
         try Task.checkCancellation()
         let root = try makeScratchDirectory()
@@ -97,6 +108,15 @@ public struct StandaloneArchiveExtractor: Sendable {
                     payloadURL: payload,
                     scratchURL: root
                 )
+                if URL(fileURLWithPath: entryPath).pathExtension.lowercased() == "mdx" {
+                    try await materializeStandaloneMDXDependency(
+                        archiveURL: archiveURL,
+                        entryPath: entryPath,
+                        payloadURL: payload,
+                        scratchURL: root,
+                        dependencySearchRoot: dependencySearchRoot
+                    )
+                }
             } else {
                 try await extractWith7Zip(archiveURL: archiveURL, payloadURL: payload, scratchURL: root)
             }
@@ -201,6 +221,84 @@ public struct StandaloneArchiveExtractor: Sendable {
         }
     }
 
+    private func materializeStandaloneMDXDependency(
+        archiveURL: URL,
+        entryPath: String,
+        payloadURL: URL,
+        scratchURL: URL,
+        dependencySearchRoot: URL?
+    ) async throws {
+        let mdxURL = payloadURL.appendingPathComponent(entryPath)
+        let data = try Data(contentsOf: mdxURL)
+        guard let pdxName = MDXDependencyReader.pdxName(in: data) else { return }
+        guard Self.isSafeRelativePath(pdxName) else {
+            throw StandaloneArchiveError.unsafeEntry(pdxName)
+        }
+
+        let requestedName = (pdxName as NSString).lastPathComponent
+        let requestedDirectory = (pdxName as NSString).deletingLastPathComponent
+        let sourceDirectory = requestedDirectory == "."
+            ? archiveURL.deletingLastPathComponent()
+            : archiveURL.deletingLastPathComponent()
+                .appendingPathComponent(requestedDirectory)
+                .standardizedFileURL
+        let outputURL = payloadURL.appendingPathComponent(pdxName)
+        guard outputURL.standardizedFileURL.path.hasPrefix(payloadURL.standardizedFileURL.path + "/") else {
+            throw StandaloneArchiveError.unsafeEntry(pdxName)
+        }
+        try fileManager.createDirectory(
+            at: outputURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        let directoryContents = try fileManager.contentsOfDirectory(
+            at: sourceDirectory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        )
+        let regularFiles = directoryContents.filter {
+            (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+        }
+        let localSource = regularFiles.first { candidate in
+            let candidateName = candidate.lastPathComponent
+            return candidateName.caseInsensitiveCompare(requestedName) == .orderedSame
+        } ?? regularFiles.first { candidate in
+            let candidateName = candidate.lastPathComponent
+            return candidateName.caseInsensitiveCompare(requestedName + ".zst") == .orderedSame
+                || candidateName.caseInsensitiveCompare(requestedName + ".zstd") == .orderedSame
+        }
+        let source = localSource ?? dependencySearchRoot.flatMap {
+            dependencyIndex.bestMatch(
+                named: requestedName,
+                for: archiveURL,
+                under: $0
+            )
+        }
+        guard let source else { return }
+
+        try? fileManager.removeItem(at: outputURL)
+        let sourceName = source.lastPathComponent.lowercased()
+        if sourceName.hasSuffix(".zst") || sourceName.hasSuffix(".zstd") {
+            let zstandard = try requiredTool([
+                "/opt/homebrew/bin/zstd", "/usr/local/bin/zstd", "/usr/bin/zstd"
+            ])
+            try await ScannerCommand.runWritingOutput(
+                executable: zstandard,
+                arguments: ["-d", "-q", "-c", "--", source.path],
+                outputURL: outputURL,
+                logURL: scratchURL.appendingPathComponent("pdx-zstd.log")
+            )
+        } else {
+            try fileManager.copyItem(at: source, to: outputURL)
+        }
+
+        let attributes = try fileManager.attributesOfItem(atPath: outputURL.path)
+        let byteCount = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+        guard byteCount > 0 else {
+            throw StandaloneArchiveError.resourceLimit("PDX dependency is empty: \(pdxName)")
+        }
+    }
+
     private func normalizeExtractedDirectories(at rootURL: URL) throws {
         guard let enumerator = fileManager.enumerator(
             at: rootURL,
@@ -270,6 +368,11 @@ public struct StandaloneArchiveExtractor: Sendable {
         return !path.split(separator: "/", omittingEmptySubsequences: false).contains("..")
     }
 
+    static func isStandaloneSupportFile(_ url: URL) -> Bool {
+        guard isStandaloneZstandard(url) else { return false }
+        return supportFileExtensions.contains(url.deletingPathExtension().pathExtension.lowercased())
+    }
+
     private func makeScratchDirectory() throws -> URL {
         let cache = fileManager.temporaryDirectory
             .appendingPathComponent("ScanSong-ScanScratch", isDirectory: true)
@@ -315,6 +418,102 @@ public struct StandaloneArchiveExtractor: Sendable {
         return (name.hasSuffix(".zst") || name.hasSuffix(".zstd")) && !isTarZstandard(url)
     }
 
+}
+
+private enum MDXDependencyReader {
+    static func pdxName(in data: Data) -> String? {
+        let marker = Data([0x0D, 0x0A, 0x1A])
+        guard let markerRange = data.range(of: marker) else { return nil }
+        let dependencyStart = markerRange.upperBound
+        guard dependencyStart < data.endIndex else { return nil }
+        let remainder = data[dependencyStart...]
+        guard let terminator = remainder.firstIndex(of: 0x00) else { return nil }
+        let rawName = remainder[..<terminator]
+        guard !rawName.isEmpty else { return nil }
+        // MDX files traditionally store the PDX dependency in the X68000
+        // locale encoding. Decoding those bytes as UTF-8 turns a valid
+        // Japanese filename into replacement characters (and can introduce
+        // apparent path separators), which then looks like an unsafe member.
+        // Prefer Shift-JIS, with UTF-8 as a compatibility fallback for newer
+        // hand-authored modules.
+        var name = String(data: Data(rawName), encoding: .shiftJIS)
+            ?? String(data: Data(rawName), encoding: .utf8)
+            ?? String(decoding: rawName, as: UTF8.self)
+        if !name.lowercased().hasSuffix(".pdx") { name += ".pdx" }
+        return name
+    }
+}
+
+/// Indexes PDX sidecars within one explicitly supplied scan root. The source
+/// library may flatten MDX modules and their banks into different subfolders,
+/// so sibling lookup alone is insufficient. The index is built at most once
+/// per root and a match is selected deterministically: nearest shared path,
+/// uncompressed before compressed, then lexical path order.
+private final class MDXDependencyIndex: @unchecked Sendable {
+    private let lock = NSLock()
+    private var indexes: [String: [String: [URL]]] = [:]
+
+    func bestMatch(named: String, for archiveURL: URL, under rootURL: URL) -> URL? {
+        let root = rootURL.standardizedFileURL
+        let rootPath = root.path
+        let candidates = lock.withLock {
+            if indexes[rootPath] == nil {
+                indexes[rootPath] = buildIndex(root: root)
+            }
+            return indexes[rootPath]?[named.lowercased()] ?? []
+        }
+        guard !candidates.isEmpty else { return nil }
+
+        let sourceDirectory = archiveURL.deletingLastPathComponent().standardizedFileURL
+        return candidates.sorted { left, right in
+            let leftShared = sharedPathLength(sourceDirectory, left.deletingLastPathComponent())
+            let rightShared = sharedPathLength(sourceDirectory, right.deletingLastPathComponent())
+            if leftShared != rightShared { return leftShared > rightShared }
+
+            let leftCompressed = left.lastPathComponent.lowercased().hasSuffix(".zst")
+                || left.lastPathComponent.lowercased().hasSuffix(".zstd")
+            let rightCompressed = right.lastPathComponent.lowercased().hasSuffix(".zst")
+                || right.lastPathComponent.lowercased().hasSuffix(".zstd")
+            if leftCompressed != rightCompressed { return !leftCompressed }
+            return left.path.localizedStandardCompare(right.path) == .orderedAscending
+        }.first
+    }
+
+    private func buildIndex(root: URL) -> [String: [URL]] {
+        guard (try? root.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
+              let enumerator = FileManager.default.enumerator(
+                  at: root,
+                  includingPropertiesForKeys: [.isRegularFileKey],
+                  options: [.skipsHiddenFiles, .skipsPackageDescendants]
+              ) else { return [:] }
+
+        var result: [String: [URL]] = [:]
+        for case let candidate as URL in enumerator {
+            guard (try? candidate.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+                continue
+            }
+            let lowerName = candidate.lastPathComponent.lowercased()
+            guard lowerName.hasSuffix(".pdx")
+                || lowerName.hasSuffix(".pdx.zst")
+                || lowerName.hasSuffix(".pdx.zstd") else { continue }
+            let logicalName: String
+            if lowerName.hasSuffix(".zstd") {
+                logicalName = String(lowerName.dropLast(5))
+            } else if lowerName.hasSuffix(".zst") {
+                logicalName = String(lowerName.dropLast(4))
+            } else {
+                logicalName = lowerName
+            }
+            result[logicalName, default: []].append(candidate.standardizedFileURL)
+        }
+        return result
+    }
+
+    private func sharedPathLength(_ left: URL, _ right: URL) -> Int {
+        zip(left.pathComponents, right.pathComponents)
+            .prefix { $0.0 == $0.1 }
+            .count
+    }
 }
 
 private final class ScannerProcessBox: @unchecked Sendable {
