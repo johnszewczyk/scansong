@@ -19,6 +19,10 @@ import zlib
     #expect(registry.route(pathExtension: "mdx")?.pluginID == "mdx")
     #expect(registry.route(pathExtension: "mdx")?.structurePolicy == .knownSingle)
     #expect(registry.route(pathExtension: "pdx") == nil)
+    #expect(registry.route(forPath: "/tmp/mod.xpose-end")?.pluginID == "amiga-uade")
+    #expect(registry.route(forPath: "/tmp/p4x.earth")?.pluginID == "amiga-uade")
+    #expect(registry.route(forPath: "/tmp/music.mod")?.pluginID == "openmpt")
+    #expect(registry.route(forPath: "/tmp/stage.p4x") == nil)
     #expect(registry.route(pathExtension: "ogg")?.metadataPolicy == .direct)
     #expect(registry.route(pathExtension: "ogg")?.pluginID == "standard-audio")
     #expect(registry.route(pathExtension: "ogg")?.pluginID != "vgmstream")
@@ -26,7 +30,9 @@ import zlib
     #expect(registry.route(pathExtension: "miniqsf")?.pluginID == "qsf-mini")
     #expect(registry.route(pathExtension: "miniqsf")?.structurePolicy == .dependencyEnumerate)
     #expect(BuiltInScannerPlugins.archiveExtensions.contains("zst"))
+    #expect(BuiltInScannerPlugins.archiveExtensions.contains("lha"))
     #expect(StandaloneArchiveExtractor.isSupportedArchive(URL(fileURLWithPath: "track.vgm.zst")))
+    #expect(StandaloneArchiveExtractor.isSupportedArchive(URL(fileURLWithPath: "amiga.lha")))
     #expect(StandaloneArchiveExtractor.isSupportedArchive(URL(fileURLWithPath: "set.tar.zst")))
     #expect(StandaloneArchiveExtractor.isStandaloneSupportFile(URL(fileURLWithPath: "bank.PDX.zst")))
     for sidecar in ["bank.2sflib.zst", "bank.ssflib.zst", "bank.usflib.zst"] {
@@ -56,6 +62,26 @@ import zlib
 }
 
 @Test(
+    "Amiga fixture publishes UADE replayer tracks",
+    .enabled(
+        if: ProcessInfo.processInfo.environment["SCANSONG_AMIGA_FIXTURE"] != nil
+            && ProcessInfo.processInfo.environment["SCANSONG_AMIGA_INSPECT"] != nil,
+        "Set SCANSONG_AMIGA_FIXTURE and SCANSONG_AMIGA_INSPECT to run the UADE scanner check."
+    )
+)
+func amigaFixtureInspectsThroughUADE() async throws {
+    let path = try #require(ProcessInfo.processInfo.environment["SCANSONG_AMIGA_FIXTURE"])
+    let fileURL = URL(fileURLWithPath: path)
+    let route = try #require(BuiltInScannerPlugins.registry.route(forPath: fileURL.path))
+    let handler = try #require(BuiltInFormatInspectors.registry.handler(for: route))
+    let inspection = try await handler.inspect(fileURL: fileURL, route: route)
+    #expect(inspection.tracks.count > 0)
+    #expect(inspection.tracks.allSatisfy { $0.trackCount == inspection.tracks.count })
+    #expect(inspection.tracks.map(\.trackIndex) == Array(0..<inspection.tracks.count))
+    #expect(inspection.tracks.allSatisfy { $0.metadata?.system == "Commodore Amiga" })
+}
+
+@Test(
     "MDX fixture publishes one native-duration track",
     .enabled(
         if: ProcessInfo.processInfo.environment["SCANSONG_MDX_FIXTURE"] != nil
@@ -72,6 +98,57 @@ func mdxFixtureInspectsThroughVGMBoy() async throws {
     #expect(inspection.tracks.count == 1)
     #expect(inspection.tracks.first?.trackIndex == 0)
     #expect(inspection.tracks.first?.trackCount == 1)
+    #expect((inspection.tracks.first?.metadata?.playLengthMs ?? 0) > 0)
+    #expect(inspection.tracks.first?.metadata?.system == "Sharp X68000")
+}
+
+@Test(
+    "MDX LZX fixture is decoded before scanner inspection",
+    .enabled(
+        if: ProcessInfo.processInfo.environment["SCANSONG_MDX_LZX_FIXTURE"] != nil
+            && ProcessInfo.processInfo.environment["SCANSONG_MDX_INSPECT"] != nil,
+        "Set SCANSONG_MDX_LZX_FIXTURE and SCANSONG_MDX_INSPECT to run the real X68000 LZX check."
+    )
+)
+func mdxLZXFixtureInspectsThroughVGMBoy() async throws {
+    let path = try #require(ProcessInfo.processInfo.environment["SCANSONG_MDX_LZX_FIXTURE"])
+    let fileURL = URL(fileURLWithPath: path)
+    let route = try #require(BuiltInScannerPlugins.registry.route(pathExtension: fileURL.pathExtension))
+    let handler = try #require(BuiltInFormatInspectors.registry.handler(for: route))
+    let inspection = try await handler.inspect(fileURL: fileURL, route: route)
+    #expect(inspection.tracks.count == 1)
+    #expect((inspection.tracks.first?.metadata?.playLengthMs ?? 0) > 0)
+    #expect(inspection.tracks.first?.metadata?.system == "Sharp X68000")
+}
+
+@Test(
+    "MDX archive fixture materializes its PDX dependency before inspection",
+    .enabled(
+        if: ProcessInfo.processInfo.environment["SCANSONG_MDX_ARCHIVE_FIXTURE"] != nil
+            && ProcessInfo.processInfo.environment["SCANSONG_MDX_ROOT"] != nil
+            && ProcessInfo.processInfo.environment["SCANSONG_MDX_INSPECT"] != nil,
+        "Set SCANSONG_MDX_ARCHIVE_FIXTURE, SCANSONG_MDX_ROOT, and SCANSONG_MDX_INSPECT to run the archive-backed MDX check."
+    )
+)
+func mdxArchiveFixtureMaterializesDependency() async throws {
+    let archiveURL = URL(fileURLWithPath: try #require(
+        ProcessInfo.processInfo.environment["SCANSONG_MDX_ARCHIVE_FIXTURE"]
+    ))
+    let rootURL = URL(fileURLWithPath: try #require(
+        ProcessInfo.processInfo.environment["SCANSONG_MDX_ROOT"]
+    ))
+    let extracted = try await StandaloneArchiveExtractor().extractForScan(
+        archiveURL: archiveURL,
+        registry: BuiltInScannerPlugins.registry,
+        dependencySearchRoot: rootURL
+    )
+    defer { StandaloneArchiveExtractor().discard(extracted) }
+
+    let member = try #require(extracted.members.first)
+    #expect(extracted.members.count == 1)
+    let handler = try #require(BuiltInFormatInspectors.registry.handler(for: member.route))
+    let inspection = try await handler.inspect(fileURL: member.fileURL, route: member.route)
+    #expect(inspection.tracks.count == 1)
     #expect((inspection.tracks.first?.metadata?.playLengthMs ?? 0) > 0)
     #expect(inspection.tracks.first?.metadata?.system == "Sharp X68000")
 }
@@ -220,6 +297,7 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
     try Data([0]).write(to: root.appendingPathComponent("music.ssflib"))
     try Data([0]).write(to: root.appendingPathComponent("music.2sflib"))
     try Data([0]).write(to: root.appendingPathComponent("music.sbb"))
+    try Data([0]).write(to: root.appendingPathComponent("star.pdx"))
     try Data([0]).write(to: root.appendingPathComponent("ReadMe.TXT"))
     try Data([0]).write(to: root.appendingPathComponent("extensionless"))
 
@@ -915,6 +993,54 @@ func spcFixturesPublishNativeLengths() async throws {
     let materializedPDX = extracted.scratchURL
         .appendingPathComponent("payload", isDirectory: true)
         .appendingPathComponent(dependencyName)
+    #expect(try Data(contentsOf: materializedPDX) == pdx)
+}
+
+@Test func standaloneMDXNormalizesLegacyLeadingBackslashDependency() async throws {
+    let zstandardPath = ["/opt/homebrew/bin/zstd", "/usr/local/bin/zstd", "/usr/bin/zstd"]
+        .first(where: { FileManager.default.isExecutableFile(atPath: $0) })
+    guard let zstandardPath else { return }
+
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("ScanSong-mdx-legacy-pdx-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    var mdx = Data("[TITLE] Legacy dependency\r\n".utf8)
+    mdx.append(contentsOf: [0x1A])
+    mdx.append(contentsOf: Data("\\bos".utf8))
+    mdx.append(0)
+    mdx.append(contentsOf: [0, 0, 0, 0])
+    let pdx = Data(repeating: 0x4B, count: 1_024)
+    let rawMDX = root.appendingPathComponent("song.MDX")
+    let rawPDX = root.appendingPathComponent("BOS.PDX")
+    try mdx.write(to: rawMDX)
+    try pdx.write(to: rawPDX)
+
+    func compress(_ source: URL, to destination: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: zstandardPath)
+        process.arguments = ["-q", "-f", source.path, "-o", destination.path]
+        try process.run()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+    }
+    let mdxArchive = root.appendingPathComponent("song.MDX.zst")
+    let pdxArchive = root.appendingPathComponent("BOS.PDX.zst")
+    try compress(rawMDX, to: mdxArchive)
+    try compress(rawPDX, to: pdxArchive)
+    try FileManager.default.removeItem(at: rawMDX)
+    try FileManager.default.removeItem(at: rawPDX)
+
+    let extracted = try await StandaloneArchiveExtractor().extractForScan(
+        archiveURL: mdxArchive,
+        registry: BuiltInScannerPlugins.registry
+    )
+    defer { StandaloneArchiveExtractor().discard(extracted) }
+    #expect(extracted.members.map(\.entryPath) == ["song.MDX"])
+    let materializedPDX = extracted.scratchURL
+        .appendingPathComponent("payload", isDirectory: true)
+        .appendingPathComponent("bos.pdx")
     #expect(try Data(contentsOf: materializedPDX) == pdx)
 }
 

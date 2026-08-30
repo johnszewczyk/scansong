@@ -65,6 +65,11 @@
 - Closing the app while a scan or link-maintenance operation is active presents
   a warning. A scan can be cancelled and closes only after completed checkpoints
   are retained; maintenance closes only after its current database operation.
+- The development launcher sends `SIGTERM` to the previous ScanSong instance.
+  The GUI handles that signal through the same cooperative close path: active
+  scans cancel and retain completed checkpoints, while link/path maintenance
+  finishes its current database operation. Scanner-owned decoder and archive
+  subprocesses are terminated and reaped before their output handles close.
 
 ## Options
 

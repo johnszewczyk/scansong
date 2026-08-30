@@ -16,7 +16,7 @@ enum InspectorProcessRunner {
         process.executableURL = executable
         process.arguments = arguments
 
-        let processBox = InspectorProcessBox()
+        let processBox = ScannerManagedProcess()
         let output = BoundedPipeCapture(limit: standardOutputLimit) { processBox.terminate() }
         let errors = BoundedPipeCapture(limit: standardErrorLimit) { processBox.terminate() }
         process.standardOutput = output.pipe
@@ -26,21 +26,19 @@ enum InspectorProcessRunner {
         process.terminationHandler = { completion.finish(status: $0.terminationStatus) }
         processBox.install(process)
 
-        do {
-            try process.run()
-        } catch {
-            processBox.clear()
-            output.finish()
-            errors.finish()
-            throw ScannerInspectionError.library(
-                "Could not launch \(executable.lastPathComponent): \(error.localizedDescription)"
-            )
-        }
-
         let status: Int32
         do {
             status = try await withTaskCancellationHandler {
-                try await withThrowingTaskGroup(of: Int32.self) { group in
+                do {
+                    guard try processBox.launch(process) else { throw CancellationError() }
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    throw ScannerInspectionError.library(
+                        "Could not launch \(executable.lastPathComponent): \(error.localizedDescription)"
+                    )
+                }
+                return try await withThrowingTaskGroup(of: Int32.self) { group in
                     group.addTask { await completion.value() }
                     group.addTask {
                         try await Task.sleep(for: timeout)
@@ -54,8 +52,10 @@ enum InspectorProcessRunner {
                 processBox.terminate()
             }
         } catch {
-            processBox.terminate()
-            _ = await completion.value()
+            if processBox.wasLaunched() {
+                processBox.terminate()
+                _ = await completion.value()
+            }
             processBox.clear()
             output.finish()
             errors.finish()
@@ -97,20 +97,6 @@ enum InspectorProcessRunner {
 
 private enum InspectorProcessFailure: Error {
     case timedOut
-}
-
-private final class InspectorProcessBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var process: Process?
-
-    func install(_ process: Process) { lock.withLock { self.process = process } }
-    func clear() { lock.withLock { process = nil } }
-    func terminate() {
-        lock.withLock {
-            guard let process, process.isRunning else { return }
-            process.terminate()
-        }
-    }
 }
 
 private final class ProcessCompletion: @unchecked Sendable {

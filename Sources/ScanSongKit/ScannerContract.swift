@@ -1,4 +1,5 @@
 import Foundation
+import VGMBoyFormatCore
 
 public enum ScanSongContract {
     public static let name = "scansong-jsonl"
@@ -96,7 +97,10 @@ public struct ScannerPluginRegistry: Sendable {
     public func route(pathExtension: String, archiveMember: Bool = false) -> ScannerRoute? {
         let normalized = ScannerPluginDescriptor.normalize(pathExtension)
         guard let descriptor = descriptors.first(where: {
-            $0.supportedExtensions.contains(normalized)
+            // Amiga prefixes are not ordinary suffixes. They are admitted by
+            // route(forPath:) so a normal `music.mod` remains OpenMPT.
+            $0.pluginID != "amiga-uade"
+                && $0.supportedExtensions.contains(normalized)
                 && (!archiveMember || $0.supportsArchiveMembers)
         }) else {
             return nil
@@ -114,6 +118,32 @@ public struct ScannerPluginRegistry: Sendable {
 
     public func route(for pathExtension: String, archiveMember: Bool = false) -> ScannerRoute? {
         route(pathExtension: pathExtension, archiveMember: archiveMember)
+    }
+
+    /// Routes ordinary suffixes first, then Amiga's replayer-prefix names
+    /// (`p4x.earth`, `mod.xpose-end`, etc.). Prefix routing is path-aware and
+    /// is intentionally not folded into the generic extension API.
+    public func route(forPath path: String, archiveMember: Bool = false) -> ScannerRoute? {
+        if let route = route(
+            pathExtension: URL(fileURLWithPath: path).pathExtension,
+            archiveMember: archiveMember
+        ) {
+            return route
+        }
+        guard let prefix = AmigaFormatManifest.prefix(for: path),
+              let descriptor = descriptors.first(where: {
+                  $0.pluginID == "amiga-uade"
+                      && $0.supportedExtensions.contains(prefix)
+                      && (!archiveMember || $0.supportsArchiveMembers)
+              }) else { return nil }
+        return ScannerRoute(
+            pluginID: descriptor.pluginID,
+            formatExtension: prefix,
+            supportsArchiveMembers: descriptor.supportsArchiveMembers,
+            supportsMultiTrack: descriptor.supportsMultiTrack,
+            structurePolicy: descriptor.structurePolicy,
+            metadataPolicy: descriptor.metadataPolicy
+        )
     }
 }
 

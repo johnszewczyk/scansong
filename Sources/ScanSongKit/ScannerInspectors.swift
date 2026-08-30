@@ -108,6 +108,9 @@ public enum BuiltInFormatInspectors {
                 if descriptor.pluginID == "mdx" {
                     return MDXCLIInspector(descriptor: descriptor)
                 }
+                if descriptor.pluginID == "amiga-uade" {
+                    return AmigaCLIInspector(descriptor: descriptor)
+                }
                 return BuiltInFormatInspector(descriptor: descriptor)
             }
     )

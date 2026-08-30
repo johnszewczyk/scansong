@@ -26,6 +26,7 @@ fake one-track record merely to make a collection look complete.
 | `libvgm` | `.gym`, `.s98`, `.vgm`, `.vgz` | One stream row | Direct VGM/VGZ GD3 and timing; GYM/S98 text may be empty | VGZ is bounded gzip decompression, not a generic archive. |
 | `psgplay` | `.sndh` | One row per declared subtune | Shared `VGMBoySNDH` header/timing reader | Never starts PSGPlay during metadata inspection. |
 | `mdx` | `.mdx` | One logical sequence row | VGMBoy-built `vgmboy-mdx-inspect` | A declared PDX bank is prepared but never published as a track. |
+| `amiga-uade` | UADE replayer prefixes (`mod.*`, `p4x.*`, `med.*`, TFMX, and custom players) | One row per UADE subsong | VGMBoy-built `vgmboy-amiga-inspect` | `.lha` and loose sets are materialized as complete sets; companions remain dependency data. |
 | `highly-complete` | `.gsf`, `.minigsf` | One validated row | VGMBoy-built inspector plus PSF-style tags | Complete miniGSF dependency set is required. |
 | `highly-theoretical` | `.ssf`, `.minissf` | One structurally-known row | PSF-style footer tags | Scanner tags the PSF container; a native playback route is not implied. |
 | `lazyusf` | `.usf`, `.miniusf` | One structurally-known row | PSF-style footer tags | `.usflib` is playback dependency data, never a row. |
@@ -120,6 +121,14 @@ complete archive is extracted into disposable scratch, the MDX header is read,
 and its PDX member is retained as dependency data. A declared but missing PDX
 is an explicit MDX failure; it is not a successful metadata row with an
 unknown dependency.
+
+The VGMBoy/mdxmini boundary also handles the inner X68000 LZX 0.32/0.42 form.
+For MDX, the clear title and dependency header are preserved while only the
+compressed sequence body is decoded. For PDX, a whole-file LZX stream is
+decoded before the native sample-bank table is parsed. This is a lossless
+scratch-layer accommodation: the outer `.zst` and original MDX/PDX payloads
+are never rewritten. A legacy leading backslash in a PDX basename is treated
+as a same-directory reference; absolute and traversal spellings remain unsafe.
 
 ## PSF-family routes
 
@@ -240,6 +249,33 @@ metadata. ScanSong does not render or convert a module during intake; an empty
 metadata object means the module was admitted as a known single source, not
 that a title was fabricated. Playback compatibility and module-specific
 duration remain the libopenmpt/VGMBoy boundary.
+
+### Amiga modules through UADE
+
+Amiga music is a special route because many historical files identify the
+EaglePlayer from a leading filename token rather than a conventional suffix.
+ScanSong admits known UADE prefixes such as `mod.*`, `p4x.*`, `med.*`,
+`mdat.*`, `smpl.*`, TFMX, and custom-player names through the shared
+`AmigaFormatManifest`; an ordinary `music.mod` remains an OpenMPT module.
+Loose files and members inside `.lha` archives use the same path-aware route.
+
+The scanner extracts `.lha` with the existing bounded 7zz archive boundary,
+then materializes the complete extracted Amiga set before invoking the
+VGMBoy-built `vgmboy-amiga-inspect` adapter. This is required because an
+Amiga set may contain a module, player companion, or sample bank in the same
+archive. Companion data is available to UADE but is not published as a second
+track source. UADE reports the actual subsong range, so ScanSong publishes one
+row per declared subsong with the same zero-based contiguous track indexes used
+by VGMBoy playback. The original module and companion bytes are preserved;
+ScanSong does not convert them to WAV or flatten them into a new container.
+
+The current shareable runtime is Homebrew UADE 3.05. UADE is GPL-2.0-only (not
+GPL-2.0-or-later), so distribution must keep its license obligations and the
+runtime data directory in view. A valid UADE open establishes format support;
+native duration may remain zero for EaglePlayers that do not expose a finite
+length, in which case VGMBoy's normal natural-end or bounded playback policy
+applies. Decode/open failures remain visible `archive-error` records and are
+never replaced with a fabricated one-track success.
 
 ### APE policy route
 

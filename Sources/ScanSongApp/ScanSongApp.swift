@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 import ScanSongKit
 import SwiftUI
@@ -49,6 +50,9 @@ final class ScannerAppModel: ObservableObject {
     private var scanTask: Task<Void, Never>?
     private var worker: Task<ScanOutcome, Never>?
     private var pathTask: Task<PathAdditionOutcome, Never>?
+    private var pathObserverTask: Task<Void, Never>?
+    private var maintenanceTask: Task<Void, Never>?
+    private var maintenanceWorker: Task<MaintenanceOutcome, Never>?
     private var activeRootID: Int64?
     private var operationStartedAt: Date?
     private var logWindows: [Int64: ScannerScanLogWindow] = [:]
@@ -68,6 +72,15 @@ final class ScannerAppModel: ObservableObject {
             ignoredFileExtensions = ScannerFormatPolicy.defaultIgnoredExtensions
         }
         validateCatalog()
+    }
+
+    deinit {
+        scanTask?.cancel()
+        worker?.cancel()
+        pathObserverTask?.cancel()
+        pathTask?.cancel()
+        maintenanceTask?.cancel()
+        maintenanceWorker?.cancel()
     }
 
     var isBusy: Bool { isScanning || isMaintaining }
@@ -391,10 +404,11 @@ final class ScannerAppModel: ObservableObject {
             }
         }
         pathTask = worker
-        Task { [weak self] in
+        pathObserverTask = Task { [weak self] in
             let outcome = await worker.value
             guard let self else { return }
             pathTask = nil
+            pathObserverTask = nil
             isMaintaining = false
             switch outcome {
             case .success:
@@ -498,9 +512,13 @@ final class ScannerAppModel: ObservableObject {
                 return MaintenanceOutcome.failure(error.localizedDescription)
             }
         }
-        Task {
+        self.maintenanceWorker = worker
+        maintenanceTask = Task { [weak self] in
+            guard let self else { return }
             await self.sampleProgress(from: progressBuffer, apply: self.applyMaintenanceProgress)
             let outcome = await worker.value
+            maintenanceWorker = nil
+            maintenanceTask = nil
             isMaintaining = false
             switch outcome {
             case .checked(let result):
@@ -1128,14 +1146,40 @@ struct ScannerWindow: View {
 private final class ScanSongApplicationDelegate: NSObject, NSApplicationDelegate {
     static weak var shared: ScanSongApplicationDelegate?
     weak var scannerModel: ScannerAppModel?
+    private var terminationSignal: DispatchSourceSignal?
+    private var terminationWasSignalled = false
 
     override init() {
         super.init()
         Self.shared = self
+
+        // launch.sh uses SIGTERM to retire the previous development build.
+        // Ignore the default abrupt signal action and route it through the same
+        // cooperative close path used by the native UI.
+        signal(SIGTERM, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global(qos: .utility))
+        source.setEventHandler { [weak self] in
+            DispatchQueue.main.async {
+                guard let self, !self.terminationWasSignalled else { return }
+                self.terminationWasSignalled = true
+                NSApplication.shared.terminate(nil)
+            }
+        }
+        source.resume()
+        terminationSignal = source
+    }
+
+    deinit {
+        terminationSignal?.cancel()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let model = scannerModel, model.isBusy else { return .terminateNow }
+
+        if terminationWasSignalled {
+            model.closeWhenWorkIsSafe { sender.reply(toApplicationShouldTerminate: true) }
+            return .terminateLater
+        }
 
         let alert = NSAlert()
         if model.isScanning {

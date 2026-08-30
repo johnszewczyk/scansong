@@ -13,16 +13,17 @@ executables.
   are the source of truth for upstream revision review; ScanSong does not keep a second version list.
 - ScanSong depends on VGMBoy's lightweight `VGMBoyFormatCore` and `VGMBoySNDH` products
   for typed format admission; it does not link VGMBoyKit or native decoders.
-- `ScanSong/build-app.sh` asks VGMBoy to build the vgmstream CLI, Highly Complete inspector, and MDX inspector,
+- `ScanSong/build-app.sh` asks VGMBoy to build the vgmstream CLI, Highly Complete inspector, MDX inspector, and UADE-backed Amiga inspector,
   then copies those products into the ScanSong bundle.
-- `ScanSong/launch.sh` packages a fresh app and refuses to open it while an older ScanSong
-  process remains.
+- `ScanSong/launch.sh` packages a fresh app, asks the older ScanSong process to
+  close through `SIGTERM`, and refuses to open it while that process remains.
 
 ## Invariants
 
 - ScanSong never reaches into CocoaSpice, SPCBoy, or a frontend-owned helper path.
 - The app bundle contains the VGMBoy-built `vgmstream-cli` and
-  `vgmboy-highly-complete-inspect` and `vgmboy-mdx-inspect` products at the paths expected by the scanner adapters.
+  `vgmboy-highly-complete-inspect`, `vgmboy-mdx-inspect`, and
+  `vgmboy-amiga-inspect` products at the paths expected by the scanner adapters.
 - `build-app.sh` removes `.build` before a release build so stale scanner binaries cannot survive
   a fresh packaging run.
 - A missing inspection executable is a typed adapter failure; the scanner does not invent a row or
@@ -31,6 +32,9 @@ executables.
 ## Failure Boundaries
 
 - Dependency or plugin build failure stops packaging and leaves the previous installed app intact.
+- Retiring a running development app is cooperative: `SIGTERM` enters the
+  app's termination delegate, and launch waits for the scan/maintenance close
+  boundary instead of replacing a live scanner process.
 - An unavailable staged inspector is reported by the scanner adapter and does not become a player
   launch or permission request.
 - SNDH metadata is read through the shared `VGMBoySNDH` product; ScanSong owns only
@@ -38,6 +42,8 @@ executables.
   C bridge, and staged static library.
 - MDX metadata is read through the VGMBoy-built `vgmboy-mdx-inspect` process;
   ScanSong owns only route registration and catalog projection.
+- Amiga metadata is read through the VGMBoy-built `vgmboy-amiga-inspect` process;
+  ScanSong owns only prefix admission, archive materialization, and catalog projection.
 
 ## Files
 

@@ -35,6 +35,9 @@ install -m 755 "$QSF_INSPECT_SOURCE" "$APP_DIR/Contents/Resources/vgmboy-qsf-ins
 MDX_INSPECT_SOURCE="${SCANSONG_MDX_INSPECT:-$VGMBoy_DIR/.build/scanner-plugins/vgmboy-mdx-inspect}"
 [[ -x "$MDX_INSPECT_SOURCE" ]] || { echo "Missing ScanSong MDX plugin: $MDX_INSPECT_SOURCE" >&2; exit 1; }
 install -m 755 "$MDX_INSPECT_SOURCE" "$APP_DIR/Contents/Resources/vgmboy-mdx-inspect"
+AMIGA_INSPECT_SOURCE="${SCANSONG_AMIGA_INSPECT:-$VGMBoy_DIR/.build/scanner-plugins/vgmboy-amiga-inspect}"
+[[ -x "$AMIGA_INSPECT_SOURCE" ]] || { echo "Missing ScanSong Amiga plugin: $AMIGA_INSPECT_SOURCE" >&2; exit 1; }
+install -m 755 "$AMIGA_INSPECT_SOURCE" "$APP_DIR/Contents/Resources/vgmboy-amiga-inspect"
 
 if [[ -z "$HIGHLY_COMPLETE_INSPECT_SOURCE" ]]; then
     HIGHLY_COMPLETE_BIN_DIR="$(swift build --package-path "$VGMBoy_DIR" --disable-sandbox --configuration release --product vgmboy-highly-complete-inspect --show-bin-path)"
@@ -76,13 +79,21 @@ bundle_homebrew_dependency() {
     done < <(otool -L "$source" | tail -n +2 | awk '{print $1}')
 }
 
-for plugin in "$APP_DIR/Contents/Resources/vgmstream-cli" "$APP_DIR/Contents/Resources/highly-complete-inspect" "$APP_DIR/Contents/Resources/vgmboy-qsf-inspect" "$APP_DIR/Contents/Resources/vgmboy-mdx-inspect"; do
+for plugin in "$APP_DIR/Contents/Resources/vgmstream-cli" "$APP_DIR/Contents/Resources/highly-complete-inspect" "$APP_DIR/Contents/Resources/vgmboy-qsf-inspect" "$APP_DIR/Contents/Resources/vgmboy-mdx-inspect" "$APP_DIR/Contents/Resources/vgmboy-amiga-inspect"; do
     while IFS= read -r dependency; do
         if [[ "$dependency" == /opt/homebrew/* && -f "$dependency" ]]; then
             bundle_homebrew_dependency "$dependency"
         fi
     done < <(otool -L "$plugin" | tail -n +2 | awk '{print $1}')
 done
+
+# UADE's dylib keeps libzakalwe.so as an @loader_path dependency rather than
+# an absolute Homebrew path. Add that sibling explicitly so the Amiga helper
+# remains runnable after the library is moved into the app bundle.
+UADE_LIBRARY_ROOT="${SCANSONG_UADE_LIB_DIR:-/opt/homebrew/opt/uade/lib}"
+if [[ -f "$UADE_LIBRARY_ROOT/libzakalwe.so" ]]; then
+    bundle_homebrew_dependency "$UADE_LIBRARY_ROOT/libzakalwe.so"
+fi
 
 for index in "${!bundled_names[@]}"; do
     name="${bundled_names[$index]}"
@@ -97,7 +108,7 @@ for index in "${!bundled_names[@]}"; do
     done < <(otool -L "$source" | tail -n +2 | awk '{print $1}')
 done
 
-for plugin in "$APP_DIR/Contents/Resources/vgmstream-cli" "$APP_DIR/Contents/Resources/highly-complete-inspect" "$APP_DIR/Contents/Resources/vgmboy-qsf-inspect" "$APP_DIR/Contents/Resources/vgmboy-mdx-inspect"; do
+for plugin in "$APP_DIR/Contents/Resources/vgmstream-cli" "$APP_DIR/Contents/Resources/highly-complete-inspect" "$APP_DIR/Contents/Resources/vgmboy-qsf-inspect" "$APP_DIR/Contents/Resources/vgmboy-mdx-inspect" "$APP_DIR/Contents/Resources/vgmboy-amiga-inspect"; do
     while IFS= read -r dependency; do
         dependency_name="$(basename "$dependency")"
         if has_bundled_name "$dependency_name"; then

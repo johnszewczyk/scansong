@@ -551,7 +551,7 @@ public enum ScanFilesystemDiscovery {
             if StandaloneArchiveExtractor.isStandaloneSupportFile(child) {
                 continue
             }
-            let route = registry.route(for: child.pathExtension)
+            let route = registry.route(forPath: child.path)
             guard isArchive(child) || route != nil else { continue }
             candidates.append(ScanCandidate(
                 identity: identity,

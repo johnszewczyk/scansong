@@ -66,8 +66,15 @@ struct ArchiveMemberEnumerator {
                 skipped.append(.init(entryPath: entry, extensionName: extensionName, reason: .explicitlyIgnored))
                 continue
             }
-            guard let route = registry.route(for: fileURL.pathExtension, archiveMember: true) else {
-                if !extensionName.isEmpty && !Self.supportFileExtensions.contains(extensionName) {
+            // PDX is native MDX sample-bank data, not an independent playable
+            // source. Apply the support-file rule before the path-aware Amiga
+            // prefix router, because names such as `star.pdx` can otherwise
+            // be mistaken for Amiga modules.
+            if !extensionName.isEmpty && Self.supportFileExtensions.contains(extensionName) {
+                continue
+            }
+            guard let route = registry.route(forPath: fileURL.path, archiveMember: true) else {
+                if !extensionName.isEmpty {
                     skipped.append(.init(entryPath: entry, extensionName: extensionName, reason: .unsupportedFormat))
                 }
                 continue

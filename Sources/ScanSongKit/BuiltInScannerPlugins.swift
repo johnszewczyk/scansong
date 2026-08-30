@@ -21,6 +21,7 @@ public enum BuiltInScannerPlugins {
         .init(pluginID: "libvgm", displayName: "libVGM", supportedExtensions: ["gym", "s98", "vgm", "vgz"], structurePolicy: .enumerate, metadataPolicy: .decoder, priority: 10),
         .init(pluginID: "psgplay", displayName: "PSGPlay", supportedExtensions: ["sndh"], structurePolicy: .enumerate, metadataPolicy: .direct, priority: 10),
         .init(pluginID: "mdx", displayName: "mdxmini", supportedExtensions: ["mdx"], structurePolicy: .knownSingle, metadataPolicy: .decoder, priority: 10),
+        .init(pluginID: "amiga-uade", displayName: "UADE", supportedExtensions: AmigaFormatManifest.prefixes, supportsMultiTrack: true, structurePolicy: .enumerate, metadataPolicy: .decoder, priority: 20),
         .init(pluginID: "highly-complete", displayName: "Highly Complete", supportedExtensions: ["gsf", "minigsf"], structurePolicy: .dependencyEnumerate, metadataPolicy: .decoder, priority: 10),
         .init(pluginID: "highly-theoretical", displayName: "Highly Theoretical", supportedExtensions: ["ssf", "minissf"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 10),
         .init(pluginID: "lazyusf", displayName: "LazyUSF", supportedExtensions: ["usf", "miniusf"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 10),
@@ -35,5 +36,5 @@ public enum BuiltInScannerPlugins {
         .init(pluginID: "sid", displayName: "SID", supportedExtensions: ["sid"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 10)
     ])
 
-    public static let archiveExtensions: Set<String> = ["7z", "rar", "rsn", "tar.zst", "tar.zstd", "tzst", "zip", "zst", "zstd"]
+    public static let archiveExtensions: Set<String> = ["7z", "lha", "rar", "rsn", "tar.zst", "tar.zstd", "tzst", "zip", "zst", "zstd"]
 }

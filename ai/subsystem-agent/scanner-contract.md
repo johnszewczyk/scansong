@@ -146,7 +146,13 @@
 - SQLite write contention waits through the configured busy timeout. A timeout
   or conflicting writer leaves completed transactions atomic and the catalog
   readable; ScanSong reports the condition and re-enables retry actions.
-- Child archive processes are terminated when their task is cancelled. A
+- Every scanner-launched process has an owned lifecycle: cancellation is safe
+  even if it races process startup, the process is placed in a private process
+  group, and the owner waits for termination before closing its output handles.
+  TAR/ZST waits for both pipeline members before returning an error or
+  cancellation. The GUI also converts the development launcher's SIGTERM into
+  cooperative scan cancellation and close, rather than allowing the operating
+  system to tear down the app abruptly. A
   standalone `name.ext.zst` or `name.ext.zstd` is admitted only when `ext` is
   a registered playable format; its basename is the single implicit member
   name, and Zstandard writes that one payload into disposable scan scratch.
@@ -159,7 +165,10 @@
   path order. It never searches outside the supplied scan root. The PDX wrapper
   is suppressed from discovery and never becomes a scanner track. Missing
   declared banks remain explicit MDX failures. TAR.ZST remains the multi-member
-  streaming tar path.
+  streaming tar path. The shared VGMBoy/mdxmini boundary decodes the inner
+  X68000 LZX 0.32/0.42 MDX body and whole-file LZX PDX form; source bytes stay
+  untouched. A legacy leading backslash in a PDX basename is normalized
+  narrowly, while absolute and traversal spellings remain unsafe.
 - Archive paths, symlinks, member count/name size, and expanded bytes are
   validated before records are accepted.
 - Required adapters currently include libgme enumeration and timing, direct

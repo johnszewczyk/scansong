@@ -61,7 +61,7 @@ public struct StandaloneArchiveExtractor: Sendable {
 
     public static func isSupportedArchive(_ url: URL) -> Bool {
         let name = url.lastPathComponent.lowercased()
-        return [".7z", ".rar", ".rsn", ".tar.zst", ".tar.zstd", ".tzst", ".zip", ".zst", ".zstd"]
+        return [".7z", ".lha", ".rar", ".rsn", ".tar.zst", ".tar.zstd", ".tzst", ".zip", ".zst", ".zstd"]
             .contains { name.hasSuffix($0) }
     }
 
@@ -440,6 +440,13 @@ private enum MDXDependencyReader {
         var name = String(data: Data(rawName), encoding: .shiftJIS)
             ?? String(data: Data(rawName), encoding: .utf8)
             ?? String(decoding: rawName, as: UTF8.self)
+        // A legacy X68000 writer used `\name` for a same-directory PDX
+        // basename. Strip only those leading backslashes; traversal and any
+        // remaining backslash syntax stay rejected by isSafeRelativePath.
+        while name.hasPrefix("\\") {
+            name.removeFirst()
+        }
+        guard !name.isEmpty else { return nil }
         if !name.lowercased().hasSuffix(".pdx") { name += ".pdx" }
         return name
     }
@@ -517,74 +524,86 @@ private final class MDXDependencyIndex: @unchecked Sendable {
     }
 }
 
-private final class ScannerProcessBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var process: Process?
-
-    func install(_ process: Process) { lock.withLock { self.process = process } }
-    func clear() { lock.withLock { process = nil } }
-    func terminate() {
-        lock.withLock {
-            guard let process, process.isRunning else { return }
-            process.terminate()
-        }
-    }
-}
-
-private final class ScannerPipelineBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var processes: [Process] = []
-
-    func install(_ processes: [Process]) {
-        lock.withLock { self.processes = processes }
-    }
-
-    func terminate() {
-        lock.withLock {
-            for process in processes where process.isRunning {
-                process.terminate()
-            }
-        }
-    }
-}
-
 private final class ScannerPipelineStatus: @unchecked Sendable {
+    enum ProcessKind {
+        case zstandard
+        case tar
+    }
+
+    private enum State {
+        case notStarted
+        case running
+        case finished
+    }
+
     private let lock = NSLock()
     private var zstandardStatus: Int32?
     private var tarStatus: Int32?
     private var continuation: CheckedContinuation<(Int32, Int32), Error>?
+    private var failure: Error?
+    private var zstandardState: State = .notStarted
+    private var tarState: State = .notStarted
     private var didResume = false
 
     func install(_ continuation: CheckedContinuation<(Int32, Int32), Error>) {
         lock.withLock { self.continuation = continuation }
     }
 
+    func begin(_ process: ProcessKind) {
+        lock.withLock {
+            switch process {
+            case .zstandard: zstandardState = .running
+            case .tar: tarState = .running
+            }
+        }
+    }
+
+    func finishWithoutLaunch(_ process: ProcessKind) {
+        lock.withLock {
+            switch process {
+            case .zstandard: zstandardState = .finished
+            case .tar: tarState = .finished
+            }
+            finishIfReadyLocked()
+        }
+    }
+
     func recordZstandard(_ status: Int32) {
-        finishIfReady(zstandard: status, tar: nil)
+        lock.withLock {
+            zstandardStatus = status
+            zstandardState = .finished
+            finishIfReadyLocked()
+        }
     }
 
     func recordTar(_ status: Int32) {
-        finishIfReady(zstandard: nil, tar: status)
+        lock.withLock {
+            tarStatus = status
+            tarState = .finished
+            finishIfReadyLocked()
+        }
     }
 
     func fail(_ error: Error) {
         lock.withLock {
-            guard !didResume, let continuation else { return }
-            didResume = true
-            continuation.resume(throwing: error)
+            guard !didResume else { return }
+            failure = error
+            finishIfReadyLocked()
         }
     }
 
-    private func finishIfReady(zstandard: Int32?, tar: Int32?) {
-        lock.withLock {
-            if let zstandard { zstandardStatus = zstandard }
-            if let tar { tarStatus = tar }
-            guard !didResume,
-                  let zstandardStatus,
-                  let tarStatus,
-                  let continuation else { return }
-            didResume = true
+    private func finishIfReadyLocked() {
+        guard !didResume,
+              zstandardState == .finished,
+              tarState == .finished,
+              let continuation else { return }
+        didResume = true
+        if let failure {
+            continuation.resume(throwing: failure)
+        } else if let zstandardStatus, let tarStatus {
             continuation.resume(returning: (zstandardStatus, tarStatus))
+        } else {
+            continuation.resume(throwing: CancellationError())
         }
     }
 }
@@ -605,18 +624,21 @@ private enum ScannerCommand {
         process.arguments = arguments
         process.standardOutput = log
         process.standardError = log
-        let box = ScannerProcessBox()
+        let box = ScannerManagedProcess()
         box.install(process)
 
+        defer { box.clear(); try? log.close() }
         let status: Int32 = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 process.terminationHandler = { finished in
-                    box.clear()
                     continuation.resume(returning: finished.terminationStatus)
                 }
-                do { try process.run() }
-                catch {
-                    box.clear()
+                do {
+                    guard try box.launch(process) else {
+                        continuation.resume(throwing: CancellationError())
+                        return
+                    }
+                } catch {
                     continuation.resume(throwing: error)
                 }
             }
@@ -654,18 +676,21 @@ private enum ScannerCommand {
         process.arguments = arguments
         process.standardOutput = output
         process.standardError = log
-        let box = ScannerProcessBox()
+        let box = ScannerManagedProcess()
         box.install(process)
 
+        defer { box.clear(); try? output.close(); try? log.close() }
         let status: Int32 = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 process.terminationHandler = { finished in
-                    box.clear()
                     continuation.resume(returning: finished.terminationStatus)
                 }
-                do { try process.run() }
-                catch {
-                    box.clear()
+                do {
+                    guard try box.launch(process) else {
+                        continuation.resume(throwing: CancellationError())
+                        return
+                    }
+                } catch {
                     continuation.resume(throwing: error)
                 }
             }
@@ -721,8 +746,19 @@ private enum ScannerCommand {
         tarProcess.standardOutput = output
         tarProcess.standardError = tarError
 
-        let pipeline = ScannerPipelineBox()
-        pipeline.install([zstandardProcess, tarProcess])
+        let zstandardBox = ScannerManagedProcess()
+        let tarBox = ScannerManagedProcess()
+        zstandardBox.install(zstandardProcess)
+        tarBox.install(tarProcess)
+        defer {
+            zstandardBox.clear()
+            tarBox.clear()
+            try? output.close()
+            try? bridge.fileHandleForReading.close()
+            try? bridge.fileHandleForWriting.close()
+            try? zstandardError.fileHandleForReading.close()
+            try? tarError.fileHandleForReading.close()
+        }
         let status = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 let completion = ScannerPipelineStatus()
@@ -733,16 +769,32 @@ private enum ScannerCommand {
                 tarProcess.terminationHandler = { process in
                     completion.recordTar(process.terminationStatus)
                 }
+                var tarLaunched = false
+                var zstandardLaunched = false
                 do {
-                    try tarProcess.run()
-                    try zstandardProcess.run()
+                    completion.begin(.tar)
+                    guard try tarBox.launch(tarProcess) else {
+                        completion.finishWithoutLaunch(.tar)
+                        throw CancellationError()
+                    }
+                    tarLaunched = true
+                    completion.begin(.zstandard)
+                    guard try zstandardBox.launch(zstandardProcess) else {
+                        completion.finishWithoutLaunch(.zstandard)
+                        throw CancellationError()
+                    }
+                    zstandardLaunched = true
                 } catch {
-                    pipeline.terminate()
+                    if !tarLaunched { completion.finishWithoutLaunch(.tar) }
+                    if !zstandardLaunched { completion.finishWithoutLaunch(.zstandard) }
+                    tarBox.terminate()
+                    zstandardBox.terminate()
                     completion.fail(error)
                 }
             }
         } onCancel: {
-            pipeline.terminate()
+            tarBox.terminate()
+            zstandardBox.terminate()
         }
         try output.close()
         outputClosed = true

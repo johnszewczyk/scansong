@@ -19,8 +19,9 @@ The repository contains:
 ```
 
 `launch.sh` always removes the prior SwiftPM build and assembled app, performs a
-clean release build, ad-hoc signs the new bundle, stops any existing
-ScanSong process, and opens that exact bundle as a new instance. Use
+clean release build, ad-hoc signs the new bundle, asks any existing ScanSong
+process to close cooperatively, and opens that exact bundle as a new instance
+only after the prior process exits. Use
 `build-app.sh` alone when a clean build without launch is required.
 
 ScanSong is also registered in `/Users/john/Downloads/Code/LaunchPad/apps.txt`.
@@ -95,6 +96,10 @@ error.
 
 - ZIP, 7z, RAR/RSN, TAR.ZST, and TZST archives with bounded complete
   materialization, path/symlink validation, cancellation, and cleanup.
+- LHA archives through the same bounded 7zz materialization boundary. Amiga
+  members are recognized by the shared UADE prefix manifest as well as by
+  ordinary suffixes, and each archive is staged as a complete set so UADE can
+  resolve player/sample companions before it publishes real subsong rows.
 - Native libgme enumeration and timing for NSF, NSFE, GBS, AY, HES, KSS, SAP,
   and related registered formats, supplemented by direct NSF/GBS header metadata.
 - Direct bounded SPC ID666/xID6 harvesting, PSF-style footer tags (including
@@ -117,14 +122,25 @@ error.
   `name.PDX.zst` files. For a compressed MDX, ScanSong reads the MDX header,
   resolves its declared PDX beside the source case-insensitively, decompresses
   both into the same disposable scratch directory, and then invokes the
-  VGMBoy inspector. A PDX wrapper is therefore not an independent scan item;
+  VGMBoy inspector. The shared mdxmini boundary also decodes inner X68000 LZX
+  0.32/0.42 MDX bodies and whole-file LZX PDX banks; the original `.zst`, MDX,
+  and PDX source bytes are never rewritten. A PDX wrapper is therefore not an
+  independent scan item;
   a declared bank that is absent remains an explicit MDX failure. Some X68000
   libraries keep banks in a separate subfolder rather than beside each module;
   MDX dependency names are read using the format's legacy Shift-JIS encoding;
+  the legacy leading `\bos` spelling is normalized to the same-directory
+  basename, while absolute and traversal spellings remain unsafe;
   when a scan root is supplied, ScanSong builds one root-scoped PDX index and
   resolves the closest matching bank deterministically (local sibling first,
   then nearest shared folder, then stable path order). It never searches outside
   the supplied scan root or invents a bank from another scan.
+- Amiga modules through VGMBoy's `vgmboy-amiga-inspect` UADE adapter. Amiga
+  names such as `mod.*`, `p4x.*`, `med.*`, `mdat.*`, `smpl.*`, and custom
+  EaglePlayer prefixes are routed by content-name convention while ordinary
+  `music.mod` remains OpenMPT. UADE's declared subsong range becomes the
+  playlist rows; same-archive player/sample companions remain dependency data,
+  not duplicate sources. The source bytes are retained and never converted.
 - Structurally known single rows for standard audio (including OGG Vorbis),
   modules, and registered formats whose optional metadata can remain empty.
 - Tracker/module rows (S3M, MOD, IT, XM, MTM, STM, and related) via
@@ -153,6 +169,8 @@ ScanSong consumes the staged scanner products and does not maintain a second
 decoder-version list. Run VGMBoy's read-only audit before a release or after
 the documented review interval; adopting a newer decoder still requires
 rebuilding the scanner product and running its format-specific fixtures.
+The human-readable plugin matrix and dependency notes are in
+[`VGMBoy/Docs/plugin-catalog.md`](/Users/john/Downloads/Code/VGMMan/VGMBoy/Docs/plugin-catalog.md).
 
 Standalone Zstandard inputs use the explicit `name.ext.zst` or
 `name.ext.zstd` convention: `ext` is the required inner playable format name,
