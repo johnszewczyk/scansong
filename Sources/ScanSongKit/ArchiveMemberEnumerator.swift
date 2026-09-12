@@ -8,7 +8,7 @@ struct ArchiveMemberEnumerator {
     // archives do not produce one diagnostic per decoder sidecar.
     private static let supportFileExtensions: Set<String> = [
         "2sflib", "bd", "gsflib", "pdx", "psflib", "qsflib", "ssflib",
-        "sbb", "txth", "txt", "usflib"
+        "pcm", "sbb", "smp", "txth", "txt", "usflib"
     ]
 
     init(fileManager: FileManager = .default) {
@@ -28,7 +28,7 @@ struct ArchiveMemberEnumerator {
             options: [.skipsHiddenFiles]
         ) else { return ([], []) }
 
-        let canonicalRoot = payloadURL.standardizedFileURL.path + "/"
+        let canonicalRoot = payloadURL.resolvingSymlinksInPath().standardizedFileURL.path + "/"
         var totalBytes: Int64 = 0
         var fileCount = 0
         var members: [ExtractedScanArchive.Member] = []
@@ -46,7 +46,7 @@ struct ArchiveMemberEnumerator {
                     "Archive exceeds the \(StandaloneArchiveExtractor.maximumMemberCount)-member safety limit."
                 )
             }
-            let standardizedPath = fileURL.standardizedFileURL.path
+            let standardizedPath = fileURL.resolvingSymlinksInPath().standardizedFileURL.path
             guard standardizedPath.hasPrefix(canonicalRoot) else {
                 throw StandaloneArchiveError.unsafeEntry(standardizedPath)
             }

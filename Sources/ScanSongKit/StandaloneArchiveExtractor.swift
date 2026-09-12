@@ -49,7 +49,7 @@ public struct StandaloneArchiveExtractor: Sendable {
     // dependency policy and also applies to standalone .zst wrappers.
     private static let supportFileExtensions: Set<String> = [
         "2sflib", "bd", "gsflib", "pdx", "psflib", "qsflib", "ssflib",
-        "sbb", "txth", "txt", "usflib"
+        "pcm", "sbb", "smp", "txth", "txt", "usflib"
     ]
 
     private var fileManager: FileManager { .default }
@@ -190,9 +190,11 @@ public struct StandaloneArchiveExtractor: Sendable {
             "/opt/homebrew/bin/zstd", "/usr/local/bin/zstd", "/usr/bin/zstd"
         ])
         let outputURL = payloadURL.appendingPathComponent(entryPath, isDirectory: false)
-        guard outputURL.standardizedFileURL.path.hasPrefix(
-            payloadURL.standardizedFileURL.path + "/"
-        ) else {
+        // `entryPath` is admitted only after this relative-path check. Do not
+        // compare standardized absolute strings here: macOS can spell the same
+        // temporary directory as both /tmp and /private/tmp depending on whether
+        // the final member exists yet.
+        guard Self.isSafeRelativePath(entryPath) else {
             throw StandaloneArchiveError.unsafeEntry(entryPath)
         }
         try fileManager.createDirectory(
@@ -231,21 +233,21 @@ public struct StandaloneArchiveExtractor: Sendable {
     ) async throws {
         let mdxURL = payloadURL.appendingPathComponent(entryPath)
         let data = try Data(contentsOf: mdxURL)
-        guard let pdxName = MDXDependencyReader.pdxName(in: data) else { return }
-        guard Self.isSafeRelativePath(pdxName) else {
-            throw StandaloneArchiveError.unsafeEntry(pdxName)
+        guard let dependencyName = MDXDependencyReader.dependencyName(in: data) else { return }
+        guard Self.isSafeRelativePath(dependencyName) else {
+            throw StandaloneArchiveError.unsafeEntry(dependencyName)
         }
 
-        let requestedName = (pdxName as NSString).lastPathComponent
-        let requestedDirectory = (pdxName as NSString).deletingLastPathComponent
+        let requestedName = (dependencyName as NSString).lastPathComponent
+        let requestedDirectory = (dependencyName as NSString).deletingLastPathComponent
         let sourceDirectory = requestedDirectory == "."
             ? archiveURL.deletingLastPathComponent()
             : archiveURL.deletingLastPathComponent()
                 .appendingPathComponent(requestedDirectory)
                 .standardizedFileURL
-        let outputURL = payloadURL.appendingPathComponent(pdxName)
-        guard outputURL.standardizedFileURL.path.hasPrefix(payloadURL.standardizedFileURL.path + "/") else {
-            throw StandaloneArchiveError.unsafeEntry(pdxName)
+        let outputURL = payloadURL.appendingPathComponent(dependencyName)
+        guard Self.isSafeRelativePath(dependencyName) else {
+            throw StandaloneArchiveError.unsafeEntry(dependencyName)
         }
         try fileManager.createDirectory(
             at: outputURL.deletingLastPathComponent(),
@@ -259,6 +261,8 @@ public struct StandaloneArchiveExtractor: Sendable {
         )
         let regularFiles = directoryContents.filter {
             (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+        }.sorted { left, right in
+            left.path.localizedStandardCompare(right.path) == .orderedAscending
         }
         let localSource = regularFiles.first { candidate in
             let candidateName = candidate.lastPathComponent
@@ -287,7 +291,7 @@ public struct StandaloneArchiveExtractor: Sendable {
                 executable: zstandard,
                 arguments: ["-d", "-q", "-c", "--", source.path],
                 outputURL: outputURL,
-                logURL: scratchURL.appendingPathComponent("pdx-zstd.log")
+                logURL: scratchURL.appendingPathComponent("mdx-dependency-zstd.log")
             )
         } else {
             try fileManager.copyItem(at: source, to: outputURL)
@@ -296,7 +300,7 @@ public struct StandaloneArchiveExtractor: Sendable {
         let attributes = try fileManager.attributesOfItem(atPath: outputURL.path)
         let byteCount = (attributes[.size] as? NSNumber)?.int64Value ?? 0
         guard byteCount > 0 else {
-            throw StandaloneArchiveError.resourceLimit("PDX dependency is empty: \(pdxName)")
+            throw StandaloneArchiveError.resourceLimit("MDX dependency is empty: \(dependencyName)")
         }
     }
 
@@ -421,8 +425,14 @@ public struct StandaloneArchiveExtractor: Sendable {
 
 }
 
-private enum MDXDependencyReader {
-    static func pdxName(in data: Data) -> String? {
+enum MDXDependencyReader {
+    /// Returns the dependency name as declared by the MDX header.
+    ///
+    /// X68000 files commonly omit the `.PDX` suffix, so that suffix remains
+    /// the inference for an extensionless reference. An explicit alternate
+    /// extension is authoritative: `NOS.SMP` must stay `NOS.SMP`, not become
+    /// the impossible `NOS.SMP.PDX`.
+    static func dependencyName(in data: Data) -> String? {
         let marker = Data([0x0D, 0x0A, 0x1A])
         guard let markerRange = data.range(of: marker) else { return nil }
         let dependencyStart = markerRange.upperBound
@@ -431,7 +441,7 @@ private enum MDXDependencyReader {
         guard let terminator = remainder.firstIndex(of: 0x00) else { return nil }
         let rawName = remainder[..<terminator]
         guard !rawName.isEmpty else { return nil }
-        // MDX files traditionally store the PDX dependency in the X68000
+        // MDX files traditionally store the companion dependency in the X68000
         // locale encoding. Decoding those bytes as UTF-8 turns a valid
         // Japanese filename into replacement characters (and can introduce
         // apparent path separators), which then looks like an unsafe member.
@@ -440,24 +450,45 @@ private enum MDXDependencyReader {
         var name = String(data: Data(rawName), encoding: .shiftJIS)
             ?? String(data: Data(rawName), encoding: .utf8)
             ?? String(decoding: rawName, as: UTF8.self)
-        // A legacy X68000 writer used `\name` for a same-directory PDX
+        // A legacy X68000 writer used `\name` for a same-directory dependency
         // basename. Strip only those leading backslashes; traversal and any
         // remaining backslash syntax stay rejected by isSafeRelativePath.
         while name.hasPrefix("\\") {
             name.removeFirst()
         }
         guard !name.isEmpty else { return nil }
-        if !name.lowercased().hasSuffix(".pdx") { name += ".pdx" }
+        if URL(fileURLWithPath: name).pathExtension.isEmpty {
+            name += ".pdx"
+        }
         return name
+    }
+
+    static func siblingURL(named name: String, beside fileURL: URL) -> URL? {
+        let requestedURL = fileURL.deletingLastPathComponent().appendingPathComponent(name)
+        if (try? requestedURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true {
+            return requestedURL
+        }
+
+        let directory = requestedURL.deletingLastPathComponent()
+        let requestedBasename = requestedURL.lastPathComponent
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+        return entries
+            .filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
+            .first { $0.lastPathComponent.caseInsensitiveCompare(requestedBasename) == .orderedSame }
     }
 }
 
-/// Indexes PDX sidecars within one explicitly supplied scan root. The source
+/// Indexes MDX dependency sidecars within one explicitly supplied scan root. The source
 /// library may flatten MDX modules and their banks into different subfolders,
 /// so sibling lookup alone is insufficient. The index is built at most once
 /// per root and a match is selected deterministically: nearest shared path,
 /// uncompressed before compressed, then lexical path order.
 private final class MDXDependencyIndex: @unchecked Sendable {
+    private static let dependencyExtensions: Set<String> = ["mdx", "pdx", "pcm", "smp"]
     private let lock = NSLock()
     private var indexes: [String: [String: [URL]]] = [:]
 
@@ -501,9 +532,6 @@ private final class MDXDependencyIndex: @unchecked Sendable {
                 continue
             }
             let lowerName = candidate.lastPathComponent.lowercased()
-            guard lowerName.hasSuffix(".pdx")
-                || lowerName.hasSuffix(".pdx.zst")
-                || lowerName.hasSuffix(".pdx.zstd") else { continue }
             let logicalName: String
             if lowerName.hasSuffix(".zstd") {
                 logicalName = String(lowerName.dropLast(5))
@@ -511,6 +539,9 @@ private final class MDXDependencyIndex: @unchecked Sendable {
                 logicalName = String(lowerName.dropLast(4))
             } else {
                 logicalName = lowerName
+            }
+            guard Self.dependencyExtensions.contains(URL(fileURLWithPath: logicalName).pathExtension) else {
+                continue
             }
             result[logicalName, default: []].append(candidate.standardizedFileURL)
         }
@@ -805,6 +836,31 @@ private enum ScannerCommand {
         let combinedOutput = standardOutput + errorOutput
         try combinedOutput.write(to: logURL, options: .atomic)
         if Task.isCancelled { throw CancellationError() }
+        if status.0 != 0, status.1 == 0 {
+            // Some tar readers stop at the standard end-of-archive blocks
+            // without draining trailing bytes from the compressed frame. In
+            // that case zstd can receive SIGPIPE even though tar accepted the
+            // archive. Accept that pipeline result only after a complete
+            // standalone pass verifies the entire compressed source.
+            let verificationLogURL = logURL.appendingPathExtension("zstd-verification")
+            defer { try? FileManager.default.removeItem(at: verificationLogURL) }
+            do {
+                _ = try await run(
+                    executable: zstandard,
+                    arguments: ["-t", "--", archiveURL.path],
+                    logURL: verificationLogURL
+                )
+                return combinedOutput
+            } catch {
+                let detail = String(decoding: errorOutput.suffix(8_192), as: UTF8.self)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                throw StandaloneArchiveError.commandFailed(
+                    tool: zstandard.lastPathComponent,
+                    status: status.0,
+                    detail: "TAR accepted the archive, but the complete Zstandard frame did not verify: \(error.localizedDescription). \(detail)"
+                )
+            }
+        }
         guard status.0 == 0, status.1 == 0 else {
             let failedTool = status.0 == 0 ? tar.lastPathComponent : zstandard.lastPathComponent
             let detail = String(decoding: errorOutput.suffix(8_192), as: UTF8.self)

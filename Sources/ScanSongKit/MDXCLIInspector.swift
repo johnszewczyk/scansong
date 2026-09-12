@@ -11,6 +11,25 @@ public struct MDXCLIInspector: ScanFormatHandler {
     }
 
     public func inspect(fileURL: URL, route: ScannerRoute) async throws -> ScanInspection {
+        let mdxData: Data
+        do {
+            mdxData = try Data(contentsOf: fileURL)
+        } catch {
+            throw ScannerInspectionError.library(
+                "Could not read MDX payload \(fileURL.lastPathComponent): \(error.localizedDescription)"
+            )
+        }
+        if let dependencyName = MDXDependencyReader.dependencyName(in: mdxData) {
+            guard StandaloneArchiveExtractor.isSafeRelativePath(dependencyName) else {
+                throw ScannerInspectionError.malformedFile(
+                    "MDX declares an unsafe dependency path: \(dependencyName)."
+                )
+            }
+            guard MDXDependencyReader.siblingURL(named: dependencyName, beside: fileURL) != nil else {
+                throw ScannerInspectionError.missingDependency(dependencyName)
+            }
+        }
+
         let executable = try Self.executableURL(descriptor: descriptor)
         let data = try await InspectorProcessRunner.run(executable: executable, arguments: [fileURL.path])
         let info: MDXInfo

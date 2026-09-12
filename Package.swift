@@ -14,6 +14,7 @@ let package = Package(
         .package(path: "../VGMBoy")
     ],
     targets: [
+        // Test-only oracle for reader parity; production scanner targets do not depend on libgme.
         .systemLibrary(
             name: "CGameMusicEmu",
             path: "Sources/CGME",
@@ -23,8 +24,8 @@ let package = Package(
         .target(
             name: "ScanSongKit",
             dependencies: [
-                "CGameMusicEmu",
                 .product(name: "VGMBoyFormatCore", package: "VGMBoy"),
+                .product(name: "VGMBoyFormatDataCore", package: "VGMBoy"),
                 .product(name: "VGMBoySNDH", package: "VGMBoy")
             ],
             linkerSettings: [
@@ -41,7 +42,14 @@ let package = Package(
                 .linkedFramework("SwiftUI")
             ]
         ),
-        .testTarget(name: "ScanSongKitTests", dependencies: ["ScanSongKit"])
+        .testTarget(
+            name: "ScanSongKitTests",
+            dependencies: [
+                "ScanSongKit",
+                "CGameMusicEmu",
+                .product(name: "VGMBoyFormatDataCore", package: "VGMBoy")
+            ]
+        )
     ],
     swiftLanguageModes: [.v6]
 )

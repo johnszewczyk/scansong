@@ -9,9 +9,20 @@ publication. The product is the sole catalog writer consumed by CocoaSpice and S
 ## Major Components
 
 - `ScanSongKit` — host-independent scanning and catalog engine.
+- `VGMBoyFormatDataCore` — dependency-free byte readers supplied by VGMBoy for
+  metadata that does not require a playback decoder.
 - `scansong` — versioned JSONL command-line boundary.
 - `ScanSong` — native catalog-management interface.
 - `build-app.sh` and `launch.sh` — fresh packaging and launch boundary.
+
+APE (`.ape`) is a supported single-track direct route. ScanSong reads its
+container timing and native tags in-process; it does not link VGMBoyKit,
+invoke a decoder, or transcode the source. VGMBoy retains FFmpeg for playback.
+GSF/miniGSF and QSF/miniQSF also use ScanSong-owned, in-process readers for
+container validation, dependency chains, tags, and authored timing. They do not
+start mGBA/Highly Complete or the QSound playback core. Those cores remain in
+VGMBoy for playback; the shared scanner-plugin preparation still builds the
+broader VGMBoy dependency set, including mGBA, as build-time collateral.
 
 ## Task Routing
 
@@ -72,18 +83,36 @@ collapsed into one ignored-format bucket:
   integration gap until the correct VGMBoy/Game Boy sound route is proven.
 - SPC metadata is harvested in-process from the ID666 header and optional xID6
   chunk. Unknown xID6 item types are skipped after bounds validation, and
-  binary/text ID666 layouts both contribute native timing without starting
-  libgme for ordinary SPC metadata.
-- PSF-style QSF/GSF tags are harvested directly, including authored length and
-  fade values, before the required QSound/Highly Complete validation step.
-  NSF/GBS fixed headers similarly provide game, author, and copyright text while
-  libgme remains authoritative for their track timing and enumeration.
+  binary/text ID666 layouts contribute native timing. Valid SPC files with no
+  recognized tags receive libgme-compatible info-only defaults; ScanSong's
+  production targets no longer link or invoke libgme for SPC inspection.
+- PSF-style tags for direct PSF-family routes are harvested without starting a
+  playback core. GSF/miniGSF use a ScanSong-owned PSF v0x22/container reader
+  that validates compressed payloads and the dependency chain while preserving
+  authored tags and timing; mGBA remains playback-only. QSF/miniQSF use a
+  ScanSong-owned PSF v0x41/container and QSound block reader that validates
+  sibling QSFLib dependencies and extracts tags/timing without playback code.
+  NSF/GBS use a
+  dependency-free header route for enumeration and native text metadata; their
+  formats do not contain authored per-track names or timing, so the reader
+  preserves libgme's unknown intro/loop/fade values and 150-second default
+  play-length policy without starting playback. NSFE uses the matching
+  dependency-free chunk route, including playlist, labels, authors, and
+  authored time/fade values.
 - VGM and gzip-compressed VGZ GD3/timing data are harvested directly with a
   bounded decompression limit; GYM and S98 remain on the libVGM route until
   their native metadata structures have fixture-backed readers.
 - HES inspection applies a same-basename sibling `.m3u` when present. The
   playlist is not catalogued as a track itself, but it maps raw HES address
   slots to authored music/SFX tracks and their lengths.
+- SAP inspection uses the Foundation-only `SAPFormatDataReader` for subsong
+  count, header identity, and per-track `TIME` hints; finite times become play
+  lengths and `LOOP` times become intro-to-loop positions. SAP no longer uses
+  libgme in ScanSong. AY inspection uses the Foundation-only
+  `AYFormatDataReader` for signed relative-pointer metadata, native subtune
+  ordering, and per-track 50 Hz lengths. AY corpus parity covers all 1,175 files
+  in the Project AY fixture archive. SAP corpus parity covers all 6,335 local
+  ASMA files; no SAP rows were present in the inspected CocoaSpice catalog.
 - Silent Hill: Shattered Memories `.ss2` members fail to open. `.ss2` is an
   established route, so these remain visible archive-member failures and are
   not ignored.

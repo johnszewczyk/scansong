@@ -114,6 +114,7 @@ final class ScannerAppModel: ObservableObject {
     }
 
     func chooseCatalog() {
+        guard !isBusy else { return }
         let panel = NSOpenPanel()
         panel.title = "Choose Media Catalog"
         panel.prompt = "Choose Catalog"
@@ -124,6 +125,34 @@ final class ScannerAppModel: ObservableObject {
         panel.directoryURL = databaseURL.deletingLastPathComponent()
         guard panel.runModal() == .OK, let selected = panel.url else { return }
         setCatalog(selected)
+    }
+
+    func addNewCatalog() {
+        guard !isBusy else { return }
+        let panel = NSSavePanel()
+        panel.title = "Add New Media Catalog"
+        panel.prompt = "Add New"
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = [.database]
+        panel.nameFieldStringValue = "Library.sqlite"
+        panel.directoryURL = databaseURL.deletingLastPathComponent()
+        guard panel.runModal() == .OK, let selected = panel.url else { return }
+
+        let candidate = selected.standardizedFileURL
+        guard !FileManager.default.fileExists(atPath: candidate.path) else {
+            catalogStatus = "A database already exists at that path. Choose a new file name."
+            return
+        }
+
+        do {
+            // CanonicalCatalogWriter creates the schema-23 file immediately;
+            // ScanSong becomes responsible for it only after that succeeds.
+            _ = try CanonicalCatalogWriter(databaseURL: candidate)
+            setCatalog(candidate)
+            scanStatus = "Add one or more scan paths."
+        } catch {
+            record(error, stage: "database.create")
+        }
     }
 
     func useDefaultCatalog() {
@@ -161,7 +190,7 @@ final class ScannerAppModel: ObservableObject {
             logWindows.values.forEach { $0.close() }
             logWindows.removeAll()
             validateCatalog()
-            scanStatus = "No database file selected. Use Default or Open a database file."
+            scanStatus = "No database file selected. Use Default, Open, or Add New."
         } catch {
             record(error, stage: "database.delete")
         }
@@ -809,8 +838,12 @@ struct ScannerWindow: View {
     private var catalogCard: some View {
         sectionCard(title: "Database File") {
             databaseFileRow
-            actionButton("Use Default") { model.useDefaultCatalog() }
-                .disabled(model.isBusy)
+            HStack(spacing: 8) {
+                actionButton("Use Default") { model.useDefaultCatalog() }
+                    .disabled(model.isBusy)
+                actionButton("Add New") { model.addNewCatalog() }
+                    .disabled(model.isBusy)
+            }
         }
     }
 

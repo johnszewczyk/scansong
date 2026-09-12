@@ -540,7 +540,7 @@ public final class CatalogScanner: @unchecked Sendable {
         progress(.materialization, candidate.identityDescription, "Materialized \(archive.members.count) playable members", nil, nil)
 
         // Inspect members concurrently under a bounded permit pool. Subprocess
-        // adapters (vgmstream, Highly Complete) dominate wall time; bounding
+        // adapters (vgmstream, QSF, MDX, FFmpeg) dominate wall time; bounding
         // the pool keeps memory and process count predictable while preserving
         // deterministic record order via per-index collection.
         let members = archive.members

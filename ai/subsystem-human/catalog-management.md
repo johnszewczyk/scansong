@@ -7,9 +7,12 @@
 ## Catalog
 
 - Database File always shows one selected catalog-file row, or `(None)` when
-  that file no longer exists. Its controls open an existing catalog, reset its
-  contents with the circular x icon, or permanently delete the file after confirmation. Use Default
-  remains below the row.
+  that file no longer exists. Its controls open an existing catalog, while
+  `Use Default` selects the standard catalog location and `Add New` creates a
+  fresh schema-23 SQLite catalog at a new path. Only one catalog is selected at
+  a time; Add New refuses to replace an existing file. Reset empties its
+  contents with the circular x icon, and Delete permanently removes the file
+  after confirmation.
 - Reset empties the catalog, including scan paths, indexed tracks, metadata,
   and scan history; Delete removes the SQLite file. Neither action deletes
   media files.

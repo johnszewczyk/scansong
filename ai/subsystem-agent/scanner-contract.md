@@ -77,6 +77,17 @@
   `ScanFormatHandler` for structure and metadata. Handlers return a complete
   `ScanInspection` and are the only layer permitted to invoke their parser;
   they never write the catalog directly.
+- Dependency-free byte facts are parsed by VGMBoy's `VGMBoyFormatDataCore`:
+  AY relative-pointer metadata, SPC ID666/xID6, NSF/GBS/NSFE/SAP headers, HES
+  headers and companion M3U playlists, PSF tags, VGM/VGZ headers, and SID
+  headers. NSF/GBS/NSFE/HES enumeration and native metadata are complete at the
+  header, chunk, or playlist boundary. SPC tagless defaults are also resolved
+  in the direct reader, so the production ScanSong targets do not link libgme;
+  libgme remains a playback concern for those formats and the scanner's other
+  decoder-backed families.
+  ScanSong owns source I/O, bounded VGZ decompression, scanner metadata
+  conversion, and catalog publication; it does not link `VGMBoyKit` or a
+  playback decoder for those readers.
 - Unknown inputs and unavailable required adapters are typed diagnostics, never
   invented playable rows or calls into a host scanner.
 - The persisted ScanSong file-type policy ignores only documented decoder-absent
@@ -95,7 +106,9 @@
   the failed member for retry and diagnosis.
 - TAR.ZST listing and extraction stream `zstd -dc` into `tar`; ScanSong does not
   create a second full temporary TAR and does not close the producer pipe before
-  the consumer finishes.
+  the consumer finishes. If `tar` accepts its end markers before draining the
+  compressed frame and `zstd` exits nonzero, ScanSong accepts the archive only
+  after a separate `zstd -t` validates the complete source.
 - Standard output contains JSONL events only, with explicit contract name,
   version, and monotonically increasing sequence. Progress diagnostics are
   rate-limited to phase changes, phase completion, or one event per second so
@@ -133,7 +146,7 @@
   `_.ldat.txth` are normalized to the decoder's canonical `.ldat.txth` name
   inside disposable scratch storage.
 - Archive member inspection runs under the shared bounded permit pool
-  (`ScanResourceScheduler`) so subprocess adapters (vgmstream, Highly Complete)
+  (`ScanResourceScheduler`) so subprocess adapters (vgmstream, MDX, UADE)
   run concurrently while records keep deterministic member order. Loose
   inspection and catalog persistence remain ordered.
 - Fingerprint reuse compares the persisted epoch `modified_at` double rather
@@ -157,35 +170,48 @@
   a registered playable format; its basename is the single implicit member
   name, and Zstandard writes that one payload into disposable scan scratch.
   MDX is the explicit dependency exception: when the decompressed MDX header
-  declares a PDX, ScanSong resolves a case-insensitive sibling `name.PDX`,
-  `name.PDX.zst`, or `name.PDX.zstd`, materializes the bank beside the MDX,
-  and invokes the same VGMBoy inspector. If the library stores the bank in a
-  different subfolder, the scanner may use a deterministic, root-scoped PDX
-  index: nearest shared folder, uncompressed before compressed, then lexical
-  path order. It never searches outside the supplied scan root. The PDX wrapper
-  is suppressed from discovery and never becomes a scanner track. Missing
-  declared banks remain explicit MDX failures. TAR.ZST remains the multi-member
+  declares a dependency, ScanSong preserves an explicit extension and infers
+  `.pdx` only for an extensionless reference. It resolves a case-insensitive
+  sibling, including compressed `.zst`/`.zstd` forms, materializes the
+  dependency beside the MDX, and invokes the same VGMBoy inspector. This avoids
+  turning `NOS.SMP` into the false `NOS.SMP.PDX`. If the library stores the
+  dependency in a different subfolder, the scanner may use a deterministic,
+  root-scoped index for PDX, SMP, PCM, and MDX names: nearest shared folder,
+  uncompressed before compressed, then lexical path order. It never searches
+  outside the supplied scan root. PDX, SMP, and PCM wrappers are suppressed
+  from discovery and never become scanner tracks; an explicitly referenced MDX
+  is resolved as dependency data for the declaring module. Missing declared
+  dependencies remain explicit MDX failures, and the MDX inspector reports the
+  missing name before invoking mdxmini. TAR.ZST remains the multi-member
   streaming tar path. The shared VGMBoy/mdxmini boundary decodes the inner
   X68000 LZX 0.32/0.42 MDX body and whole-file LZX PDX form; source bytes stay
-  untouched. A legacy leading backslash in a PDX basename is normalized
+  untouched. A legacy leading backslash in a dependency basename is normalized
   narrowly, while absolute and traversal spellings remain unsafe.
 - Archive paths, symlinks, member count/name size, and expanded bytes are
   validated before records are accepted.
-- Required adapters currently include libgme enumeration and timing, direct
-  NSF/GBS header harvesting, in-process SPC ID666 and xID6 harvesting, PSF-style
-  tags for PSF/QSF/GSF families, VGM/VGZ GD3 and timing reads, direct
-  Commodore 64 SID PSID/RSID header reads, the
+- Required adapters currently include direct SPC ID666/xID6 (including
+  tagless defaults), AY relative-pointer, SAP,
+  HES header/M3U, and KSS header readers that preserve their former
+  libgme info-only contracts without starting a core (SAP emits its declared
+  subsongs and reads authored TIME/loop-start facts; HES publishes the
+  playlist's authored tracks, or 256 compatibility slots without a playlist;
+  KSS keeps its 256-slot fallback); the dependency-free `VGMBoyFormatDataCore`
+  readers for SPC ID666/xID6, NSF/GBS/NSFE/SAP headers, direct PSF-family routes,
+  VGM/VGZ GD3/timing, and Commodore 64 SID PSID/RSID headers; the
   Core Audio standard-audio inspector for FLAC/Vorbis comments and exact
   decoded duration (with AVFoundation metadata fallback for other ordinary
   audio),
+  the ScanSong-owned APE header/tag reader for APE timing and common tags,
   scanner-owned vgmstream CLI plugin for raw vgmstream formats, TXTP structures,
-  and HD-bank structures, the scanner-owned
-  Highly Complete inspection plugin for GSF/miniGSF, and OpenMPT tracker/module
+  and HD-bank structures, the direct PSF v0x22/GSF dependency reader for
+  GSF/miniGSF, and OpenMPT tracker/module
   intake (S3M, MOD, IT, XM, MTM, STM, and related) as structurally-known single
   rows. ScanSong never invokes CocoaSpice's app or a player-owned helper. A
-  missing executable is a typed adapter failure. The Highly Complete adapter creates a parser handle before reading
-  metadata, so a miniGSF is rejected unless its extracted sibling dependencies
-  resolve. GSF/miniGSF exposes exactly one validated track per file.
+  missing executable is a typed adapter failure. The GSF reader validates the
+  complete dependency chain, compressed payload CRC/zlib stream, executable
+  segment bounds, and assembled GBA ROM signature without constructing mGBA.
+  Outer-file tags take priority for playable length; `intro_length_ms` retains
+  the prior nested-tag contract. GSF/miniGSF exposes one validated track/file.
   Dependency-enumerated formats without their own plugin fail explicitly.
 - GameCube intake is fixture-backed: primary DSP, ADP, AGSC, H4M, LDAT,
   LOGG, RSF, THP, and TXTP members route through the bundled vgmstream
@@ -205,14 +231,19 @@
   inspection. Playback selection is validated separately in VGMBoy because
   scanner publication alone cannot prove that a native subtune can restart.
 - MDX admission uses the VGMBoy-built `vgmboy-mdx-inspect` process adapter.
-  Every `.mdx` source publishes exactly one logical track. A `.pdx` member is
-  sidecar sample data, not a playable source or scanner track; MDX inspection
-  fails when a declared PDX dependency is absent. Standalone compressed MDX
-  sources receive special dependency preparation: their adjacent compressed
-  PDX sibling is decompressed into the same scratch set before inspection.
-- HES inspection applies a same-basename sibling `.m3u` when one is present.
-  The playlist remains a non-track support file, while its authored track
-  mapping and timing determine the HES rows published by the scanner.
+  Every `.mdx` source publishes exactly one logical track. PDX, SMP, and PCM
+  members are sidecar data, not playable sources or scanner tracks; MDX
+  inspection fails when a declared dependency is absent. Extensionless MDX
+  references infer `.pdx`, while explicit alternate names such as `.smp`,
+  `.pcm`, or `.mdx` are preserved. Standalone compressed MDX sources receive
+  special dependency preparation: their adjacent or root-scoped compressed
+  dependency is decompressed into the same scratch set before inspection.
+- HES inspection uses `hes-direct` and the Foundation-only
+  `HESFormatDataReader`. A same-basename sibling `.m3u` remains non-track
+  support data; its authored track mapping, titles, and timing determine the
+  published HES rows. Without a playlist, the reader preserves the 256-slot
+  compatibility listing and the prior scanner's suppressed-timing behavior.
+  Fixture and read-only CocoaSpice catalog parity checks gate this route.
 - Native CLI inspectors share one bounded process runner with a 30-second
   deadline, 4 MiB stdout, 256 KiB stderr, concurrent draining, and cancellation
   termination. Decoder-family adapters remain separate files.
@@ -224,6 +255,7 @@
 - [CanonicalCatalogSchema.swift](/Users/john/Downloads/Code/VGMMan/ScanSong/Sources/ScanSongKit/CanonicalCatalogSchema.swift)
 - [CatalogLinkAuditor.swift](/Users/john/Downloads/Code/VGMMan/ScanSong/Sources/ScanSongKit/CatalogLinkAuditor.swift)
 - [ScannerInspectors.swift](/Users/john/Downloads/Code/VGMMan/ScanSong/Sources/ScanSongKit/ScannerInspectors.swift)
+- [VGMBoyFormatDataCore](/Users/john/Downloads/Code/VGMMan/VGMBoy/Sources/VGMBoyFormatDataCore)
 - [InspectorProcessRunner.swift](/Users/john/Downloads/Code/VGMMan/ScanSong/Sources/ScanSongKit/InspectorProcessRunner.swift)
 - [TXTPDependencyResolver.swift](/Users/john/Downloads/Code/VGMMan/ScanSong/Sources/ScanSongKit/TXTPDependencyResolver.swift)
 - [ArchiveMemberEnumerator.swift](/Users/john/Downloads/Code/VGMMan/ScanSong/Sources/ScanSongKit/ArchiveMemberEnumerator.swift)
