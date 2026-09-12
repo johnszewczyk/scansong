@@ -280,9 +280,8 @@ C numeric-prefix behavior. Fallback song names use the source filename. Each
 valid GSF/miniGSF file contributes one track. VGMBoy continues to use Highly
 Complete/mGBA for actual GSF playback. ScanSong no longer bundles or invokes a
 Highly Complete inspector, and its GSF runtime route does not link mGBA. The
-current shared scanner-plugin build still calls VGMBoy's broad dependency
-builder, which prepares mGBA as build-time collateral; separating that build
-input from playback dependencies remains open work.
+scanner-plugin build no longer calls VGMBoy's broad playback dependency builder,
+so it does not prepare mGBA as scanner build-time collateral.
 
 ### QSF / miniQSF
 

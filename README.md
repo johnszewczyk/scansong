@@ -172,9 +172,9 @@ error.
   zlib payloads, GBA executable segments and ROM-header signatures, and the
   complete `_lib` dependency chain while extracting authored tags and legacy
   timing semantics. It does not launch or link mGBA; VGMBoy retains Highly
-  Complete/mGBA for playback. The shared scanner-plugin script still invokes
-  VGMBoy's broad dependency builder, so mGBA is prepared as build-time
-  collateral even though it is not a scanner runtime dependency.
+  Complete/mGBA for playback. Scanner inspectors now build through a narrow
+  VGMBoy inspection target rather than VGMBoyKit, and scanner-plugin preparation
+  no longer runs VGMBoy's full playback dependency builder.
 - A ScanSong-owned QSF/miniQSF reader that validates PSF v0x41 containers, CRCs,
   bounded zlib data, QSound blocks, and referenced `.qsflib` files without
   starting the playback core. It extracts authored tags and timing directly;

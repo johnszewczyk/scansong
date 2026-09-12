@@ -21,8 +21,9 @@ invoke a decoder, or transcode the source. VGMBoy retains FFmpeg for playback.
 GSF/miniGSF and QSF/miniQSF also use ScanSong-owned, in-process readers for
 container validation, dependency chains, tags, and authored timing. They do not
 start mGBA/Highly Complete or the QSound playback core. Those cores remain in
-VGMBoy for playback; the shared scanner-plugin preparation still builds the
-broader VGMBoy dependency set, including mGBA, as build-time collateral.
+VGMBoy for playback. Scanner inspectors use VGMBoy's narrow inspection target;
+scanner-plugin preparation does not invoke the broad playback dependency
+builder or prepare mGBA/QSF as scanner build-time collateral.
 
 ## Task Routing
 

@@ -30,12 +30,11 @@ executables.
 - A missing inspection executable is a typed adapter failure; the scanner does not invent a row or
   invoke another application as a fallback. GSF/miniGSF are read in-process by
   ScanSong, as are QSF/miniQSF; neither requires a bundled Highly Complete or
-  QSF inspection executable. APE is also read in-process. The shared VGMBoy
-  scanner build currently invokes its broad dependency builder, which still
-  prepares playback products including mGBA and the QSF core. This is build-time
-  collateral only: the direct GSF/QSF/APE scanner routes do not link or execute
-  those playback cores. Isolating scanner-only dependency preparation remains
-  separate work.
+  QSF inspection executable. APE is also read in-process. MDX and Amiga
+  inspectors use respective VGMBoy per-format inspection targets and native
+  bridges, not VGMBoyKit. Scanner-plugin preparation builds the scanner handoff
+  directly; it does not invoke VGMBoy's broad playback dependency builder or
+  stage unrelated mGBA/QSF playback cores.
 
 ## Failure Boundaries
 
