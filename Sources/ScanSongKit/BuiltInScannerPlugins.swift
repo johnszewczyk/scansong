@@ -2,9 +2,10 @@ import Foundation
 import VGMBoyFormatCore
 
 public enum BuiltInScannerPlugins {
-    // This registry includes ScanSong-only formats too. Decoder-replacement
-    // work is limited to its CocoaSpice-playable intersection; see
-    // ai/subsystem-agent/format-accommodations.md for that scoped matrix.
+    // This is the scanner's admitted media-format set. The long-term unified
+    // player target is every playable media format admitted here; VGMBoy's
+    // playback descriptors describe current support, not extraction scope.
+    // See ai/subsystem-agent/format-accommodations.md for methodologies.
 
     /// Directly catalogued GameCube members. TXTP is part of the shared
     /// GameCube manifest but takes the dependency-enumeration route below.

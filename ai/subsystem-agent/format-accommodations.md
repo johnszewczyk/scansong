@@ -25,14 +25,18 @@ shared product has no playback decoder dependency and is used only where it
 provides the complete scanner metadata contract. Decoder-backed enumeration,
 timing, dependency validation, and rendering remain on their existing routes.
 
-## CocoaSpice playback metadata interface
+## Format coverage and eventual playback target
 
-Only formats admitted by VGMBoy's
+Every playable media format admitted by ScanSong is in the eventual
+single-player coverage target: CocoaSpice should be able to play the media it
+can catalog. VGMBoy's
 [`FormatRegistry.playbackDescriptors`](/Users/john/Downloads/Code/VGMMan/VGMBoy/Sources/VGMBoyKit/FormatRegistry.swift)
-are in scope for decoder-replacement work. This is the CocoaSpice playback
-boundary; ScanSong may continue to recognize scanner-only formats, but they
-are not extraction targets. The exact route and metadata source for each
-scanner intake is detailed in the route summary below.
+describes current playback support, not the metadata-reader extraction
+boundary. The matrix below summarizes current playback families; the route
+summary lists every ScanSong-recognized media format and its current metadata
+method. A scanner-only route is a playback gap to close, not an excluded
+extraction target. Dependency files, sidecars, and control data that are not
+independent media sources are not playback targets.
 
 | CocoaSpice playback family | Playable extensions or names | ScanSong metadata methodology and current boundary |
 | --- | --- | --- |
@@ -55,9 +59,9 @@ scanner intake is detailed in the route summary below.
 `metadataPolicy: .direct` means the route does not need a playback-decoder
 process; it does not promise facts the source format never stores. `.decoder`
 marks routes whose scanner result still depends on a decoder/inspector, while
-`.optionalDeferred` admits structure without a complete metadata method. The
-`.ssf`/`.minissf` ScanSong route is intentionally absent from this table because
-it is not admitted by CocoaSpice's playback registry.
+`.optionalDeferred` admits structure without a complete metadata method. Every
+recognized media route remains in the eventual player-coverage target, even
+when the current playback registry does not yet admit it.
 
 ## Route summary
 
@@ -85,7 +89,7 @@ it is not admitted by CocoaSpice's playback registry.
 | `mdx` | `.mdx` | One logical sequence row | VGMBoy-built `vgmboy-mdx-inspect` | A declared PDX bank is prepared but never published as a track. |
 | `amiga-uade` | UADE replayer prefixes (`mod.*`, `p4x.*`, `med.*`, TFMX, and custom players) | One row per UADE subsong | VGMBoy-built `vgmboy-amiga-inspect` | `.lha` and loose sets are materialized as complete sets; companions remain dependency data. |
 | `gsf-direct` | `.gsf`, `.minigsf` | One validated row | ScanSong PSF v0x22/GSF reader | CRC, zlib payload, GBA segment, and complete miniGSF dependency chain are validated without mGBA. |
-| `highly-theoretical` | `.ssf`, `.minissf` | One structurally-known row | `VGMBoyFormatDataCore` PSF footer tags | Scanner tags the PSF container; a native playback route is not implied. |
+| `highly-theoretical` | `.ssf`, `.minissf` | One structurally-known row | `VGMBoyFormatDataCore` PSF footer tags | Metadata is available; current VGMBoy/CocoaSpice playback admission remains a gap. |
 | `lazyusf` | `.usf`, `.miniusf` | One structurally-known row | `VGMBoyFormatDataCore` PSF footer tags | `.usflib` is playback dependency data, never a row. |
 | `twosf` | `.2sf`, `.mini2sf` | One structurally-known row | `VGMBoyFormatDataCore` PSF footer tags | `.2sflib` is dependency data, never a row. |
 | `vgmstream` | Remaining raw-stream extensions listed below plus nonmatching `.adx`, `.at3`, `.aus`, `.msf`, `.svag`, and `.xa` aliases | One row per reported subsong | VGMBoy-built `vgmstream-cli` | Native `-I` inspection; subsong count is bounded. Recognized CRI/Monster ADX, RIFF ATRAC3, Atomic Planet AUS, Sony MSF, Konami/SNK SVAG, and Sony XA signatures use ScanSong readers. |
