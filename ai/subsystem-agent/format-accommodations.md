@@ -11,8 +11,10 @@ Scanner admission, metadata availability, and playback compatibility are
 separate facts. A format may have a useful scanner row while its playback
 decoder still needs a dependency set; conversely, a VGMBoy playback format may
 be deliberately absent from ScanSong until a safe scanner adapter exists.
-Malformed files remain failures. ScanSong never turns a decoder failure into a
-fake one-track record merely to make a collection look complete.
+Invalid headers and incomplete timing commands remain failures. MetaMan has
+one explicit S98 recovery: a truncated final register write is ignored only
+after all preceding commands were parsed, with a diagnostic attached; this
+does not turn arbitrary decoder failures into one-track records.
 
 ## Dependency-free format data
 
