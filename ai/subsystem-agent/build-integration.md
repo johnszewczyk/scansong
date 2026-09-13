@@ -13,9 +13,10 @@ executables.
   are the source of truth for upstream revision review; ScanSong does not keep a second version list.
 - ScanSong depends on VGMBoy's lightweight `VGMBoyFormatCore` and `VGMBoySNDH` products
   for typed format admission; it does not link VGMBoyKit or native decoders.
-- ScanSong consumes the local sibling `MetaManCore` Swift package for S98
-  metadata. The MetaManCore production target has no VGMBoy, ScanSong, or
-  playback-decoder dependency; test-only libvgm comparison stays in ScanSong.
+- ScanSong consumes the local sibling `MetaManCore` Swift package for S98 and
+  VGM/VGZ metadata. MetaManCore owns bounded VGZ gzip expansion and has no
+  VGMBoy, ScanSong, or playback-decoder dependency; test-only libvgm comparisons
+  stay in ScanSong.
 - `ScanSong/build-app.sh` asks VGMBoy to build the vgmstream CLI, MDX inspector, and UADE-backed Amiga inspector,
   then copies those products into the ScanSong bundle.
 - `ScanSong/launch.sh` packages a fresh app, asks the older ScanSong process to
@@ -53,8 +54,9 @@ executables.
   helper route.
 - Known Konami/SNK SVAG signatures use ScanSong's in-process metadata reader
   and never start `vgmstream-cli`; other `.svag` aliases retain the helper route.
-- S98 header, raw/decoded tags, and event timing are read by MetaManCore; the
-  scanner target links the library but does not link or invoke libvgm for S98.
+- S98 header, raw/decoded tags, and event timing plus VGM/VGZ headers, GD3, and
+  sample timing are read by MetaManCore; the scanner target links the library
+  but does not link or invoke libvgm for either route.
 
 ## Failure Boundaries
 

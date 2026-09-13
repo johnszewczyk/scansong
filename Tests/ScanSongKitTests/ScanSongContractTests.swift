@@ -1756,7 +1756,7 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
     writeLittleEndian(&data, at: 0x18, value: 44_100)
     writeLittleEndian(&data, at: 0x1C, value: 1)
     writeLittleEndian(&data, at: 0x20, value: 22_050)
-    let gd3Strings = ["Song", "", "Game", "", "System", "", "Artist", "", "", "", "Comment"]
+    let gd3Strings = ["Song", "", "Game", "", "System", "", "Artist", "", "1998/06/14", "Converter", "Comment"]
     var gd3Payload: [UInt8] = []
     for string in gd3Strings {
         for unit in string.utf16 {
@@ -1793,6 +1793,7 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
         #expect(metadata.song == "Song")
         #expect(metadata.game == "Game")
         #expect(metadata.author == "Artist")
+        #expect(metadata.comment == "Comment") // Date and converter remain available to MetaMan without changing the existing catalog projection.
         #expect(metadata.playLengthMs == 1_000)
         #expect(metadata.loopLengthMs == 500)
     }

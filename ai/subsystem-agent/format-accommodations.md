@@ -20,12 +20,12 @@ does not turn arbitrary decoder failures into one-track records.
 
 The fixed-byte metadata readers for AY relative-pointer tables, SPC ID666/xID6,
 NSF/GBS/NSFE/SAP headers, HES headers and companion M3U playlists, PSF tags,
-VGM/VGZ headers, and SID PSID/RSID headers live in the Foundation-only
-`VGMBoyFormatDataCore` product. ScanSong supplies file bytes and bounded VGZ
-decompression, then maps the returned facts into `ScannerMetadata`. This
-shared product has no playback decoder dependency and is used only where it
-provides the complete scanner metadata contract. Decoder-backed enumeration,
-timing, dependency validation, and rendering remain on their existing routes.
+and SID PSID/RSID headers live in the Foundation-only `VGMBoyFormatDataCore`
+product. VGM/VGZ is now read through MetaManCore, including bounded gzip
+decompression. ScanSong supplies source files and maps neutral metadata into
+its catalog schema. Neither shared product requires a playback decoder for
+these routes. Decoder-backed enumeration, timing, dependency validation, and
+rendering remain on their existing routes.
 
 S98 is the first full reader extracted to the independent `MetaManCore`
 package. It owns the format parser and neutral metadata document; ScanSong owns
@@ -49,7 +49,7 @@ independent media sources are not playback targets.
 | CocoaSpice playback family | Playable extensions or names | ScanSong metadata methodology and current boundary |
 | --- | --- | --- |
 | `libgme` | `.ay`, `.gbs`, `.hes`, `.kss`, `.nsf`, `.nsfe`, `.sap`, `.spc` | Direct format readers handle all eight: native header/chunk/playlist facts are used without starting libgme. |
-| `libvgm` | `.vgm`, `.vgz`, `.gym`, `.s98`, `.dro` | `.vgm`/`.vgz` use direct GD3/timing readers and `.s98` uses MetaManCore's direct header/device/tag/event reader. `.gym` remains one structure-known row without metadata and is not an extraction target; `.dro` has no ScanSong route. |
+| `libvgm` | `.vgm`, `.vgz`, `.gym`, `.s98`, `.dro` | `.vgm`/`.vgz` use MetaManCore's direct GD3/header-timing reader and `.s98` uses its direct header/device/tag/event reader. `.gym` remains one structure-known row without metadata and is not an extraction target; `.dro` has no ScanSong route. |
 | `psgplay` | `.sndh` | Shared SNDH header and timing reader; no PSGPlay inspection process. |
 | `mdx` | `.mdx` | VGMBoy-built `vgmboy-mdx-inspect` still supplies decoder-derived enumeration and metadata; dependencies are materialized but not published as tracks. |
 | `standard-audio` | `.aac`, `.aif`, `.aiff`, `.caf`, `.flac`, `.m4a`, `.mp3`, `.wav`, `.wave` | Core Audio supplies duration/common tags, with FLAC Vorbis comments. `.ogg` is routed through this scanner handler too. `.aac`, `.caf`, and `.wave` do not currently have ScanSong routes. |
@@ -90,7 +90,7 @@ when the current playback registry does not yet admit it.
 | `sony-msf-direct` | Sony MSF in `.msf` | One track | ScanSong Sony MSF header and frame reader | Reads supported codec timing, native stream name, and loop bounds without audio decoding; TamaSoft `MSF ` and other non-Sony aliases use vgmstream. |
 | `svag-direct` | Konami/SNK SVAG in `.svag` | One track | ScanSong Konami/SNK SVAG header reader | Derives PS-ADPCM sample and loop timing without decoding; unknown `.svag` signatures use vgmstream. |
 | `xa-direct` | Sony CD-XA in `.xa` | One row per XA file/channel subsong | ScanSong XA sector reader | Preserves interleaved channel enumeration and sector-derived timing; RIFF/CDXA wrappers are accepted. Other `.xa` formats use vgmstream. |
-| `vgm-direct` | `.vgm`, `.vgz` | One stream row | `VGMBoyFormatDataCore` VGM/VGZ GD3 and timing | VGZ is bounded gzip decompression, not a generic archive; no decoder is started. |
+| `vgm-direct` | `.vgm`, `.vgz` | One stream row | `MetaManCore` VGM/VGZ header, GD3, and sample timing | VGZ is bounded gzip decompression, not a generic archive; no decoder is started. |
 | `s98-direct` | `.s98` | One stream row | `MetaManCore` S98 v0-v3 parser plus ScanSong schema adapter | No playback core is started; full `DATE` and actual intro-to-loop timing intentionally improve on libvgm's projection. |
 | `libvgm` | `.gym` | One stream row | Structure-known; metadata remains absent | No scanner-side metadata is invented; `.gym` remains decoder-owned. |
 | `psgplay` | `.sndh` | One row per declared subtune | Shared `VGMBoySNDH` header/timing reader | Never starts PSGPlay during metadata inspection. |
@@ -366,11 +366,32 @@ solely because a PSF footer was readable.
 on the `libvgm` route. These formats publish at most one stream row per
 source; they are not treated as multi-track archives.
 
-For VGM and VGZ, the direct reader validates the VGM header and reads GD3 text,
-total samples, and loop samples. VGZ decompression is bounded to a fixed
-maximum output size, and a declared-but-invalid GD3 block is a malformed-file
-failure rather than a partial metadata row. GYM remains admitted through the
-libVGM route as a structure-known row without invented metadata.
+For VGM and VGZ, `MetaManCore` validates the VGM header and reads all 11
+standard GD3 strings (both language variants, date, converter, and notes),
+retains future extra strings and original GD3 bytes, and reads total/loop
+samples. VGZ gzip expansion is bounded to 256 MiB; a declared-but-invalid GD3
+block is a malformed-file failure rather than a partial metadata row. The
+ScanSong adapter preserves the existing English-first fields and notes-only
+comment projection. GYM remains admitted through the libVGM route as a
+structure-known row without invented metadata and is not a MetaMan target.
+
+### VGM/VGZ: complete MetaMan metadata reader
+
+`.vgm` and `.vgz` delegate to the sibling `MetaManCore` package. It parses the
+fixed VGM header and GD3 1.00 sequence without linking or invoking libvgm, and
+converts total/loop sample counts to milliseconds at 44.1 kHz. Raw GD3 bytes
+and all standard fields remain available through `MetadataDocument`; the
+scanner keeps the existing common-field and notes-only comment projection.
+Release date and converter are available to other clients but are not folded
+into the existing VGM catalog comment. Gzip expansion accepts concatenated
+members and is capped at 256 MiB. A read-only comparison against all 42,147
+root-1 VGM catalog rows found 42,099 exact matches and 48 system-label-only
+deltas: MetaMan preserves the literal English GD3 value `Sega Genesis`, while
+the saved rows contain older alternate labels. No other metadata, timing, or
+track-structure differences were found. This catalog snapshot is a comparison
+baseline, not a current libvgm oracle. No VGM playback dependency was removed
+by this extraction because the prior ScanSong path was already direct; the
+gain is one shared full metadata interface and less ScanSong code.
 
 ### S98: first complete MetaMan reader
 

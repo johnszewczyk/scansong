@@ -109,7 +109,8 @@ error.
   libgme-compatible default for valid tagless SPCs; ScanSong's app and CLI no
   longer link or invoke libgme for SPC inspection.
 - Direct PSF-style footer tags (including QSF/GSF length and fade tags),
-  VGM/VGZ GD3/timing, and Commodore 64 SID PSID/RSID header reads.
+  VGM/VGZ GD3/timing through MetaManCore, and Commodore 64 SID PSID/RSID
+  header reads.
 - Direct SNDH tag/subtune/timing harvesting through VGMBoy's shared `VGMBoySNDH`
   product. SNDH files are enumerated into their actual Atari ST subtunes; the
   scanner does not start playback just to publish metadata.

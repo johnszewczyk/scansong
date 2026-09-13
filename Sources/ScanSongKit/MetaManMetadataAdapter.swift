@@ -1,16 +1,18 @@
 import MetaManCore
 
 extension ScannerMetadata {
-    init(metadataDocument: MetadataDocument) {
+    init(metadataDocument: MetadataDocument, includeDateAndEncodedByInComment: Bool = true) {
         let fields = metadataDocument.fields
         var comment = fields.comment ?? ""
-        if let date = fields.date, !date.isEmpty {
-            if !comment.isEmpty { comment += " | " }
-            comment += "Date: \(date)"
-        }
-        if let encodedBy = fields.encodedBy, !encodedBy.isEmpty {
-            if !comment.isEmpty { comment += " | " }
-            comment += "Encoded By: \(encodedBy)"
+        if includeDateAndEncodedByInComment {
+            if let date = fields.date, !date.isEmpty {
+                if !comment.isEmpty { comment += " | " }
+                comment += "Date: \(date)"
+            }
+            if let encodedBy = fields.encodedBy, !encodedBy.isEmpty {
+                if !comment.isEmpty { comment += " | " }
+                comment += "Encoded By: \(encodedBy)"
+            }
         }
 
         self.init(

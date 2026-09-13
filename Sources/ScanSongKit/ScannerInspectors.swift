@@ -2,7 +2,6 @@ import Foundation
 import MetaManCore
 import VGMBoyFormatDataCore
 import VGMBoySNDH
-import zlib
 
 public enum ScannerInspectionError: LocalizedError {
     case unsupportedRoute(String)
@@ -80,22 +79,17 @@ public struct BuiltInFormatInspector: ScanFormatHandler {
         case "highly-theoretical", "lazyusf", "twosf", "play-psf1", "play-psf2":
             let metadata = try PSFTagReader.read(fileURL: fileURL)
             return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)])
-        case "vgm-direct":
-            let metadata = try VGMTagReader.read(fileURL: fileURL)
-            guard let metadata else {
-                throw ScannerInspectionError.malformedFile(
-                    "No direct VGM reader is registered for \(fileURL.lastPathComponent)."
-                )
-            }
-            return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)])
-        case "s98-direct":
+        case "vgm-direct", "s98-direct":
             let document: MetadataDocument
             do {
                 document = try MetaManCore.read(fileURL: fileURL)
             } catch let error as MetadataReadError {
                 throw ScannerInspectionError.malformedFile(error.localizedDescription)
             }
-            let metadata = ScannerMetadata(metadataDocument: document)
+            let metadata = ScannerMetadata(
+                metadataDocument: document,
+                includeDateAndEncodedByInComment: route.pluginID == "s98-direct"
+            )
             return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)])
         case "libvgm":
             // GYM remains structure-known without a complete metadata adapter.
@@ -378,56 +372,6 @@ enum PSFTagReader {
             metadata: ScannerMetadata(formatMetadata: result.metadata),
             tags: result.tags
         )
-    }
-}
-
-private enum VGMTagReader {
-    private static let maximumCompressedOutputBytes = 256 * 1_024 * 1_024
-
-    static func read(fileURL: URL) throws -> ScannerMetadata? {
-        let extensionName = fileURL.pathExtension.lowercased()
-        guard extensionName == "vgm" || extensionName == "vgz" else { return nil }
-        let data = try readData(fileURL: fileURL, isCompressed: extensionName == "vgz")
-        do {
-            return ScannerMetadata(formatMetadata: try VGMFormatDataReader.read(
-                data: data,
-                displayName: fileURL.lastPathComponent
-            ))
-        } catch let error as FormatDataError {
-            throw ScannerInspectionError.malformedFile(error.message)
-        }
-    }
-
-    private static func readData(fileURL: URL, isCompressed: Bool) throws -> Data {
-        guard isCompressed else {
-            return try Data(contentsOf: fileURL, options: .mappedIfSafe)
-        }
-
-        guard let handle = gzopen(fileURL.path, "rb") else {
-            throw ScannerInspectionError.malformedFile(
-                "Could not open compressed VGM: \(fileURL.lastPathComponent)"
-            )
-        }
-        defer { _ = gzclose(handle) }
-
-        var data = Data()
-        var buffer = [UInt8](repeating: 0, count: 64 * 1_024)
-        while true {
-            let count = gzread(handle, &buffer, UInt32(buffer.count))
-            if count < 0 {
-                throw ScannerInspectionError.malformedFile(
-                    "Could not decompress VGM: \(fileURL.lastPathComponent)"
-                )
-            }
-            if count == 0 { break }
-            guard data.count <= maximumCompressedOutputBytes - Int(count) else {
-                throw ScannerInspectionError.malformedFile(
-                    "Compressed VGM exceeds the scanner safety limit: \(fileURL.lastPathComponent)"
-                )
-            }
-            data.append(contentsOf: buffer.prefix(Int(count)))
-        }
-        return data
     }
 }
 
