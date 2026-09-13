@@ -100,7 +100,7 @@ public struct DryRunProbe: Sendable {
                         message: "Ignored by the configured file-type policy."
                     )
                 ))
-            } else if let route = registry.route(pathExtension: url.pathExtension) {
+            } else if let route = registry.route(forPath: url.path) {
                 accepted += 1
                 events.append(ScannerEvent(kind: .sourceRouted, sequence: sequence, path: url.path, route: route))
             } else if isArchive(url) {

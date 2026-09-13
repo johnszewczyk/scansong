@@ -24,6 +24,9 @@ start mGBA/Highly Complete or the QSound playback core. Those cores remain in
 VGMBoy for playback. Scanner inspectors use VGMBoy's narrow inspection target;
 scanner-plugin preparation does not invoke the broad playback dependency
 builder or prepare mGBA/QSF as scanner build-time collateral.
+CRI ADX headers and native loop timing are also read in-process by ScanSong;
+the vgmstream helper remains for other streams and non-CRI/Monster payloads
+that reuse `.adx` (including Ogg and RIFF).
 
 ## Task Routing
 

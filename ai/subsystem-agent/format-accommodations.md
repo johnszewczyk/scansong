@@ -39,6 +39,7 @@ timing, dependency validation, and rendering remain on their existing routes.
 | `openmpt` | `.669`, `.dmf`, `.far`, `.it`, `.mod`, `.mptm`, `.mtm`, `.okt`, `.ptm`, `.s3m`, `.stm`, `.ult`, `.xm` | One structurally-known row | Optional/deferred; metadata may be empty | No scanner-side module conversion or archive expansion. |
 | `standard-audio` | `.aif`, `.aiff`, `.flac`, `.m4a`, `.mp3`, `.ogg`, `.wav` | One track | Core Audio duration and common tags; FLAC Vorbis comments | Exact decoded duration is preferred. |
 | `ape-direct` | `.ape` | One validated single row | ScanSong APE header and tag reader | Header-derived duration plus APEv2 and leading ID3 common tags; no decoder startup. |
+| `adx-direct` | CRI ADX in `.adx` | One track | ScanSong CRI ADX header reader | Preserves native sample/loop bounds and vgmstream's default two-loop/10-second-fade play window; non-CRI/Monster signatures (including Ogg and RIFF aliases) use vgmstream. |
 | `vgm-direct` | `.vgm`, `.vgz` | One stream row | `VGMBoyFormatDataCore` VGM/VGZ GD3 and timing | VGZ is bounded gzip decompression, not a generic archive; no decoder is started. |
 | `libvgm` | `.gym`, `.s98` | One stream row | Decoder-owned; no scanner-side metadata is invented | Remains a decoder route until a complete scanner adapter is fixture-backed. |
 | `psgplay` | `.sndh` | One row per declared subtune | Shared `VGMBoySNDH` header/timing reader | Never starts PSGPlay during metadata inspection. |
@@ -48,7 +49,7 @@ timing, dependency validation, and rendering remain on their existing routes.
 | `highly-theoretical` | `.ssf`, `.minissf` | One structurally-known row | `VGMBoyFormatDataCore` PSF footer tags | Scanner tags the PSF container; a native playback route is not implied. |
 | `lazyusf` | `.usf`, `.miniusf` | One structurally-known row | `VGMBoyFormatDataCore` PSF footer tags | `.usflib` is playback dependency data, never a row. |
 | `twosf` | `.2sf`, `.mini2sf` | One structurally-known row | `VGMBoyFormatDataCore` PSF footer tags | `.2sflib` is dependency data, never a row. |
-| `vgmstream` | Direct raw-stream extensions listed below | One row per reported subsong | VGMBoy-built `vgmstream-cli` | Native `-I` inspection; subsong count is bounded. |
+| `vgmstream` | Direct raw-stream extensions listed below plus `.adx` payloads without recognized CRI/Monster headers | One row per reported subsong | VGMBoy-built `vgmstream-cli` | Native `-I` inspection; subsong count is bounded. CRI/Monster ADX is handled by `adx-direct`. |
 | `vgmstream-txtp` | `.txtp` | One row per resolved subsong | `vgmstream-cli` after dependency preparation | Authored TXTP structure is authoritative. |
 | `vgmstream-hd-bank` | `.hd`, `.hbd`, `.iecs` | One row per resolved subsong | `vgmstream-cli` after dependency preparation | Bank/control sidecars are support data; IECS remains a known adapter boundary. |
 | `play-psf1` | `.psf`, `.minipsf` | One structurally-known row | `VGMBoyFormatDataCore` PSF footer tags | `.psflib` is playback dependency data, never a row. |
@@ -324,13 +325,25 @@ adapter is fixture-backed.
 
 ## vgmstream raw streams, TXTP, and banks
 
+### CRI ADX
+
+CRI ADX files route to ScanSong's in-process metadata reader rather than
+`vgmstream-cli`. It recognizes type-03, type-04 (including encrypted version
+markers), and type-05 headers, plus the distinct Monster Games ADX layout. The
+reader preserves the decoder's source label, sample-derived loop length, and
+default play timing (two loop iterations followed by a ten-second fade). The
+live-catalog test compares all saved ADX fields against both this reader and
+`vgmstream-cli`. Only recognized CRI/Monster headers use this reader; other
+payloads named `.adx` (including Ogg and RIFF aliases) remain on vgmstream, so
+extension alone does not classify content as CRI ADX.
+
 ### Raw direct streams
 
 The direct vgmstream set is owned by VGMBoy's
 [`VGMStreamFormatManifest.swift`](/Users/john/Downloads/Code/VGMMan/VGMBoy/Sources/VGMBoyFormatCore/VGMStreamFormatManifest.swift):
 
 ```text
-.aa3 .adx .ads .ahx .aifc .at3 .aus .bik .bika .bnk .dvi .fsb .genh .int
+.aa3 .ads .ahx .aifc .at3 .aus .bik .bika .bnk .dvi .fsb .genh .int
 .mib .msf .mtaf .rws .ss2 .stream .strm .svag .vag .xa .xmd
 ```
 

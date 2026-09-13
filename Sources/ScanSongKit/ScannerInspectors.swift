@@ -58,6 +58,9 @@ public struct BuiltInFormatInspector: ScanFormatHandler {
         case "ape-direct":
             let metadata = try APEMetadataReader.read(fileURL: fileURL)
             return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)])
+        case "adx-direct":
+            let metadata = try ADXMetadataReader.read(fileURL: fileURL)
+            return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)])
         case "highly-theoretical", "lazyusf", "twosf", "play-psf1", "play-psf2":
             let metadata = try PSFTagReader.read(fileURL: fileURL)
             return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)])

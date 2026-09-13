@@ -88,6 +88,12 @@
   ScanSong owns source I/O, bounded VGZ decompression, scanner metadata
   conversion, and catalog publication; it does not link `VGMBoyKit` or a
   playback decoder for those readers.
+- ScanSong owns a direct CRI ADX header reader for type 03/04/05, encrypted
+  type-04 headers, and Monster Games ADX. It derives loop length from native
+  sample bounds and preserves vgmstream's two-loop plus ten-second fade default
+  when computing play length. `.adx` files without recognized CRI/Monster
+  headers remain on vgmstream; the supported CRI ADX paths do not launch or
+  link a playback decoder.
 - Unknown inputs and unavailable required adapters are typed diagnostics, never
   invented playable rows or calls into a host scanner.
 - The persisted ScanSong file-type policy ignores only documented decoder-absent

@@ -105,14 +105,7 @@ public struct ScannerPluginRegistry: Sendable {
         }) else {
             return nil
         }
-        return ScannerRoute(
-            pluginID: descriptor.pluginID,
-            formatExtension: normalized,
-            supportsArchiveMembers: descriptor.supportsArchiveMembers,
-            supportsMultiTrack: descriptor.supportsMultiTrack,
-            structurePolicy: descriptor.structurePolicy,
-            metadataPolicy: descriptor.metadataPolicy
-        )
+        return Self.route(for: descriptor, extensionName: normalized)
     }
 
 
@@ -121,11 +114,24 @@ public struct ScannerPluginRegistry: Sendable {
     }
 
     /// Routes ordinary suffixes first, then Amiga's replayer-prefix names
-    /// (`p4x.earth`, `mod.xpose-end`, etc.). Prefix routing is path-aware and
-    /// is intentionally not folded into the generic extension API.
+    /// (`p4x.earth`, `mod.xpose-end`, etc.). ADX is content-aware: recognized
+    /// CRI/Monster headers use ScanSong's reader; other `.adx` aliases retain
+    /// vgmstream. These path-aware rules are not folded into the extension API.
     public func route(forPath path: String, archiveMember: Bool = false) -> ScannerRoute? {
+        let fileURL = URL(fileURLWithPath: path)
+        let extensionName = ScannerPluginDescriptor.normalize(fileURL.pathExtension)
+        if extensionName == "adx" {
+            let pluginID = Self.isDirectADX(at: fileURL) ? "adx-direct" : "vgmstream"
+            if let descriptor = descriptors.first(where: {
+                $0.pluginID == pluginID
+                    && $0.supportedExtensions.contains("adx")
+                    && (!archiveMember || $0.supportsArchiveMembers)
+            }) {
+                return Self.route(for: descriptor, extensionName: extensionName)
+            }
+        }
         if let route = route(
-            pathExtension: URL(fileURLWithPath: path).pathExtension,
+            pathExtension: extensionName,
             archiveMember: archiveMember
         ) {
             return route
@@ -144,6 +150,27 @@ public struct ScannerPluginRegistry: Sendable {
             structurePolicy: descriptor.structurePolicy,
             metadataPolicy: descriptor.metadataPolicy
         )
+    }
+
+    private static func route(for descriptor: ScannerPluginDescriptor, extensionName: String) -> ScannerRoute {
+        ScannerRoute(
+            pluginID: descriptor.pluginID,
+            formatExtension: extensionName,
+            supportsArchiveMembers: descriptor.supportsArchiveMembers,
+            supportsMultiTrack: descriptor.supportsMultiTrack,
+            structurePolicy: descriptor.structurePolicy,
+            metadataPolicy: descriptor.metadataPolicy
+        )
+    }
+
+    private static func isDirectADX(at fileURL: URL) -> Bool {
+        guard let file = try? FileHandle(forReadingFrom: fileURL) else { return false }
+        defer { try? file.close() }
+        guard let header = try? file.read(upToCount: 4) else { return false }
+        let bytes = [UInt8](header)
+        let monster = bytes.count >= 4 && bytes[0] == 0x02 && bytes[1] == 0x00 && bytes[2] == 0x00 && bytes[3] == 0x00
+        let cri = bytes.count >= 2 && bytes[0] == 0x80 && bytes[1] == 0x00
+        return monster || cri
     }
 }
 

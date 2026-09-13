@@ -35,6 +35,10 @@ executables.
   bridges, not VGMBoyKit. Scanner-plugin preparation builds the scanner handoff
   directly; it does not invoke VGMBoy's broad playback dependency builder or
   stage unrelated mGBA/QSF playback cores.
+- CRI ADX uses ScanSong's in-process header reader and never starts
+  `vgmstream-cli`. `.adx` content without a CRI or Monster Games signature
+  remains on the vgmstream route; the helper also remains necessary for the
+  other registered vgmstream formats.
 
 ## Failure Boundaries
 
@@ -53,6 +57,8 @@ executables.
   ScanSong owns only prefix admission, archive materialization, and catalog projection.
 - APE metadata is read by ScanSong's direct header/tag reader; FFmpeg remains
   in VGMBoy for playback and is not an APE scanner requirement.
+- CRI ADX metadata is read by ScanSong's direct header/timing reader; vgmstream
+  remains a VGMBoy playback route and a scanner helper for other formats.
 - GSF/miniGSF metadata and structure are read by ScanSong's direct PSF/GSF
   parser; Highly Complete/mGBA remains a VGMBoy playback route, not a scanner
   process or runtime link.
