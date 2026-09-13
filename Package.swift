@@ -11,7 +11,8 @@ let package = Package(
         .executable(name: "ScanSong", targets: ["ScanSongApp"])
     ],
     dependencies: [
-        .package(path: "../VGMBoy")
+        .package(path: "../VGMBoy"),
+        .package(path: "../MetaMan")
     ],
     targets: [
         // Test-only decoder oracles for reader parity; production scanner targets do not depend on these cores.
@@ -26,11 +27,11 @@ let package = Package(
             dependencies: [
                 .product(name: "VGMBoyFormatCore", package: "VGMBoy"),
                 .product(name: "VGMBoyFormatDataCore", package: "VGMBoy"),
-                .product(name: "VGMBoySNDH", package: "VGMBoy")
+                .product(name: "VGMBoySNDH", package: "VGMBoy"),
+                .product(name: "MetaManCore", package: "MetaMan")
             ],
             linkerSettings: [
                 .linkedLibrary("sqlite3"),
-                .linkedLibrary("iconv"),
                 .linkedFramework("AVFoundation")
             ]
         ),
@@ -48,6 +49,7 @@ let package = Package(
             dependencies: [
                 "ScanSongKit",
                 "CGameMusicEmu",
+                .product(name: "MetaManCore", package: "MetaMan"),
                 .product(name: "VGMBoyFormatDataCore", package: "VGMBoy"),
                 .product(name: "VGMBoyKit", package: "VGMBoy")
             ]

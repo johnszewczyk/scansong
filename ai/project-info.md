@@ -11,6 +11,8 @@ publication. The product is the sole catalog writer consumed by CocoaSpice and S
 - `ScanSongKit` — host-independent scanning and catalog engine.
 - `VGMBoyFormatDataCore` — dependency-free byte readers supplied by VGMBoy for
   metadata that does not require a playback decoder.
+- `MetaManCore` — shared decoder-independent format metadata reading; S98 is
+  the first extracted reader. ScanSong maps its neutral document to schema 23.
 - `scansong` — versioned JSONL command-line boundary.
 - `ScanSong` — native catalog-management interface.
 - `build-app.sh` and `launch.sh` — fresh packaging and launch boundary.
@@ -113,11 +115,13 @@ collapsed into one ignored-format bucket:
   dependency-free chunk route, including playlist, labels, authors, and
   authored time/fade values.
 - VGM and gzip-compressed VGZ GD3/timing data are harvested directly with a
-  bounded decompression limit. S98 v0-v3 header, event-timing, and tag data
-  are read directly and match the libVGM inspection result across all 5,081
-  S98 rows in the inspected CocoaSpice catalog; optimized direct inspection is
-  faster in the corpus comparison. GYM remains a structure-known libVGM route
-  without scanner metadata.
+  bounded decompression limit. S98 v0-v3 header, device, tag, and command timing
+  are read through `MetaManCore`, with the full ordered tag set and original
+  block preserved. A v3 `DATE` is exposed independently from `YEAR`; direct
+  timing uses the actual header loop offset for intro duration. A test-only
+  libvgm oracle records these known improvements separately from regressions.
+  GYM remains a legacy structure-known libVGM route without scanner metadata;
+  it is not a MetaMan migration target.
 - HES inspection applies a same-basename sibling `.m3u` when present. The
   playlist is not catalogued as a track itself, but it maps raw HES address
   slots to authored music/SFX tracks and their lengths.

@@ -1,10 +1,11 @@
 import Foundation
+import MetaManCore
 import SQLite3
 import Testing
 import VGMBoyCLibVGM
 @testable import ScanSongKit
 
-@Test("S98 v1 legacy title and event timing match libvgm")
+@Test("S98 v1 direct timing separates intro and loop duration")
 func s98LegacyTitleAndTimingMatchLibVGM() throws {
     let commands: [UInt8] = [0xFF, 0x00, 0x23, 0x45, 0xFE, 0x00, 0xFD]
     let data = makeS98(
@@ -16,15 +17,34 @@ func s98LegacyTitleAndTimingMatchLibVGM() throws {
         tags: Array("Song title\0".utf8)
     )
 
-    let direct = try S98MetadataReader.read(data: data)
+    let direct = try readS98Metadata(data)
     #expect(direct.song == "Song title")
     #expect(direct.system == "S98 v1.00")
-    #expect(direct.introLengthMs == 200)
+    #expect(direct.introLengthMs == 100)
     #expect(direct.loopLengthMs == 200)
     #expect(direct.playLengthMs == 300)
     #expect(direct.fadeLengthMs == 0)
     let reference = try inspectLibVGM(data: data)
-    #expect(direct == reference)
+    #expect(direct != reference)
+    #expect(reference.introLengthMs == direct.loopLengthMs)
+}
+
+@Test("S98 loop pointers after the end command are ignored")
+func s98StaleLoopPointerAfterTerminatorIsIgnored() throws {
+    let data = makeS98(
+        version: 1,
+        tickMultiplier: 10,
+        tickDivisor: 1_000,
+        loopCommandIndex: 2,
+        commands: [0xFF, 0xFD, 0xFF]
+    )
+    let document = try MetaManCore.read(data: data, formatHint: "s98")
+
+    #expect(document.timing?.introLengthMs == 0)
+    #expect(document.timing?.loopLengthMs == 0)
+    #expect(document.timing?.playLengthMs == 10)
+    #expect(document.technicalFacts["loopOffsetRecognized"] == "false")
+    #expect(document.diagnostics.contains { $0.contains("loop offset does not identify") })
 }
 
 @Test("S98 v0 timing defaults and CP932 legacy tags are read directly")
@@ -38,7 +58,7 @@ func s98V0DefaultsAndCP932Title() throws {
         tags: Array(title) + [0]
     )
 
-    let direct = try S98MetadataReader.read(data: data)
+    let direct = try readS98Metadata(data)
     #expect(direct.song == "曲")
     #expect(direct.system == "S98 v0.00")
     #expect(direct.playLengthMs == 20)
@@ -46,8 +66,8 @@ func s98V0DefaultsAndCP932Title() throws {
     #expect(direct == reference)
 }
 
-@Test("S98 v1 long CP932 title is decoded like libvgm")
-func s98LongCP932TitleMatchesLibVGM() throws {
+@Test("S98 v1 long CP932 title is decoded instead of preserving libvgm's UTF-8 fallback")
+func s98LongCP932TitleUsesTheDeclaredLegacyEncoding() throws {
     let title: [UInt8] = [
         0x5B, 0x53, 0x4F, 0x52, 0x43, 0x45, 0x52, 0x49, 0x41, 0x4E, 0x20, 0x56, 0x41, 0x5D, 0x20,
         0x89, 0x46, 0x92, 0x88, 0x82, 0xA9, 0x82, 0xE7, 0x82, 0xCC, 0x96, 0x4B, 0x96, 0xE2, 0x8E,
@@ -56,9 +76,10 @@ func s98LongCP932TitleMatchesLibVGM() throws {
         0xD3, 0xDD
     ]
     let data = makeS98(version: 1, commands: [0xFD], tags: title + [0])
-    let direct = try S98MetadataReader.read(data: data)
+    let direct = try readS98Metadata(data)
     let reference = try inspectLibVGM(data: data)
-    #expect(direct == reference)
+    #expect(direct.song == "[SORCERIAN VA] 宇宙からの訪問者 愛と悲しみのﾊﾞﾝﾊﾟｲｱ - ｱｰｸﾃﾞｰﾓﾝ")
+    #expect(direct.song != reference.song)
 }
 
 @Test("S98 v3 UTF-8 tags and comment projection match libvgm")
@@ -72,7 +93,7 @@ func s98V3UTF8TagsMatchLibVGM() throws {
         tags: Array(tagText.utf8) + [0]
     )
 
-    let direct = try S98MetadataReader.read(data: data)
+    let direct = try readS98Metadata(data)
     #expect(direct.game == "Game")
     #expect(direct.song == "Theme")
     #expect(direct.author == "Composer")
@@ -93,7 +114,7 @@ func s98V2DeviceTableIsSkipped() throws {
         v2Terminator: true
     )
 
-    let direct = try S98MetadataReader.read(data: data)
+    let direct = try readS98Metadata(data)
     #expect(direct.system == "S98 v2.00")
     #expect(direct.playLengthMs == 60)
     let reference = try inspectLibVGM(data: data)
@@ -103,7 +124,7 @@ func s98V2DeviceTableIsSkipped() throws {
 @Test("S98 ignores malformed optional v3 tags but keeps valid timing")
 func s98MalformedOptionalTagsDoNotDiscardTiming() throws {
     let data = makeS98(version: 3, commands: [0xFF, 0xFD], tags: Array("not an S98 tag".utf8) + [0])
-    let metadata = try S98MetadataReader.read(data: data)
+    let metadata = try readS98Metadata(data)
     #expect(metadata.song.isEmpty)
     #expect(metadata.system == "S98 v3.00")
     #expect(metadata.playLengthMs == 10)
@@ -111,26 +132,38 @@ func s98MalformedOptionalTagsDoNotDiscardTiming() throws {
     #expect(metadata == reference)
 }
 
+@Test("S98 DATE retains a full date independently from YEAR in the catalog projection")
+func s98FullDateAndYearSurviveScanSongProjection() throws {
+    let tagText = "[S98]\u{FEFF}TITLE=Theme\nDATE=1998-07-26\nYEAR=1998\nCOMMENT=Original note\n"
+    let data = makeS98(version: 3, commands: [0xFD], tags: Array(tagText.utf8) + [0])
+    let document = try MetaManCore.read(data: data, formatHint: "s98")
+    let projected = ScannerMetadata(metadataDocument: document)
+
+    #expect(document.fields.date == "1998-07-26")
+    #expect(document.fields.year == "1998")
+    #expect(projected.comment == "Original note | Date: 1998-07-26")
+}
+
 @Test("S98 malformed headers and truncated events fail safely")
 func s98MalformedInputsFailSafely() {
-    #expect(throws: ScannerInspectionError.self) {
-        try S98MetadataReader.read(data: Data("S98X".utf8))
+    #expect(throws: MetadataReadError.self) {
+        try readS98Metadata(Data("S98X".utf8))
     }
-    #expect(throws: ScannerInspectionError.self) {
-        try S98MetadataReader.read(data: makeS98(version: 1, commands: [0xFE, 0x80]))
+    #expect(throws: MetadataReadError.self) {
+        try readS98Metadata(makeS98(version: 1, commands: [0xFE, 0x80]))
     }
 }
 
-@Test("S98 length pass preserves libvgm's partial final register-write acceptance")
-func s98PartialFinalRegisterWriteMatchesLibVGM() throws {
+@Test("S98 partial final register writes preserve completed timing with a diagnostic")
+func s98PartialFinalRegisterWritePreservesCompletedEvents() throws {
     let data = makeS98(version: 1, commands: [0x01, 0xFF])
-    let direct = try S98MetadataReader.read(data: data)
-    let reference = try inspectLibVGM(data: data)
-    #expect(direct == reference)
+    let document = try MetaManCore.read(data: data, formatHint: "s98")
+    #expect(document.timing?.playLengthMs == 0)
+    #expect(document.diagnostics.contains { $0.contains("truncated register-write") })
 }
 
 @Test(
-    "S98 direct metadata and timing match libvgm across the CocoaSpice corpus",
+    "S98 metadata matches the catalog oracle except documented reader improvements",
     .enabled(
         if: ProcessInfo.processInfo.environment["SCANSONG_S98_LIVE_DB"] != nil,
         "Set SCANSONG_S98_LIVE_DB to run read-only S98 corpus parity against the live CocoaSpice catalog and libvgm."
@@ -152,6 +185,12 @@ func cocoaSpiceS98LiveRowsMatchLibVGM() async throws {
     let extractor = StandaloneArchiveExtractor()
     var totalRows = 0
     var exactRows = 0
+    var improvedRows = 0
+    var timingImprovements = 0
+    var staleLoopImprovements = 0
+    var dateImprovements = 0
+    var titleImprovements = 0
+    var titleTrimImprovements = 0
     var rejectedByBoth = 0
     var directTimes: [UInt64] = []
     var libVgmTimes: [UInt64] = []
@@ -222,6 +261,18 @@ func cocoaSpiceS98LiveRowsMatchLibVGM() async throws {
                 }
                 if directMetadata == decoderMetadata {
                     exactRows += 1
+                } else if let document = try? MetaManCore.read(fileURL: fileURL),
+                          let improvement = knownS98Improvements(
+                              direct: directMetadata,
+                              reference: decoderMetadata,
+                              document: document
+                          ), improvement.hasImprovement {
+                    improvedRows += 1
+                    if improvement.timing { timingImprovements += 1 }
+                    if improvement.staleLoop { staleLoopImprovements += 1 }
+                    if improvement.date { dateImprovements += 1 }
+                    if improvement.title { titleImprovements += 1 }
+                    if improvement.titleTrim { titleTrimImprovements += 1 }
                 } else if mismatches.count < 30 {
                     mismatches.append(
                         "\(liveFile.entryPath): \(metadataDifferences(directMetadata, decoderMetadata)); \(s98Debug(fileURL))"
@@ -235,19 +286,109 @@ func cocoaSpiceS98LiveRowsMatchLibVGM() async throws {
                 }
             case let (.failure(directError), .success):
                 if mismatches.count < 30 {
-                    mismatches.append("\(liveFile.entryPath): direct rejected but libvgm accepted: \(directError)")
+                    mismatches.append("\(liveFile.entryPath): direct rejected but libvgm accepted: \(directError); \(s98Debug(fileURL))")
                 }
             }
         }
     }
 
-    #expect(exactRows + rejectedByBoth == totalRows, "\(exactRows) exact and \(rejectedByBoth) commonly rejected out of \(totalRows) S98 rows")
+    #expect(exactRows + improvedRows + rejectedByBoth == totalRows, "\(exactRows) exact, \(improvedRows) intentionally improved, and \(rejectedByBoth) commonly rejected out of \(totalRows) S98 rows")
     #expect(mismatches.isEmpty, Comment(rawValue: mismatches.joined(separator: "\n")))
     print(
-        "S98 corpus: \(totalRows) rows / \(archives.count) source containers; exact \(exactRows); rejected by both \(rejectedByBoth); "
+        "S98 corpus: \(totalRows) rows / \(archives.count) source containers; exact \(exactRows); improved \(improvedRows) (timing \(timingImprovements), stale loop offsets \(staleLoopImprovements), full DATE \(dateImprovements), Shift_JIS decode \(titleImprovements), edge-space cleanup \(titleTrimImprovements)); rejected by both \(rejectedByBoth); "
             + "direct median \(milliseconds(median(directTimes))) ms, libvgm median \(milliseconds(median(libVgmTimes))) ms; "
             + "direct p95 \(milliseconds(percentile95(directTimes))) ms, libvgm p95 \(milliseconds(percentile95(libVgmTimes))) ms"
     )
+}
+
+private func readS98Metadata(_ data: Data) throws -> ScannerMetadata {
+    ScannerMetadata(metadataDocument: try MetaManCore.read(data: data, formatHint: "s98"))
+}
+
+private func knownS98Improvements(
+    direct: ScannerMetadata,
+    reference: ScannerMetadata,
+    document: MetadataDocument
+) -> (hasImprovement: Bool, timing: Bool, staleLoop: Bool, date: Bool, title: Bool, titleTrim: Bool)? {
+    let timingImproved = direct.introLengthMs != reference.introLengthMs
+        || direct.loopLengthMs != reference.loopLengthMs
+    let staleLoopImproved = timingImproved
+        && direct.introLengthMs == 0
+        && direct.loopLengthMs == 0
+        && reference.introLengthMs == reference.loopLengthMs
+        && direct.playLengthMs == reference.introLengthMs
+        && document.technicalFacts["loopOffsetRecognized"] == "false"
+    let dateImproved = direct.comment != reference.comment
+    let titleChanged = direct.song != reference.song
+    let titleTrimImproved = titleChanged && direct.song == trimS98TestWhitespace(reference.song)
+    let titleImproved = titleChanged && !titleTrimImproved
+    guard timingImproved || dateImproved || titleChanged,
+          direct.game == reference.game,
+          direct.system == reference.system,
+          direct.author == reference.author,
+          direct.playLengthMs == reference.playLengthMs,
+          direct.fadeLengthMs == reference.fadeLengthMs else { return nil }
+
+    if timingImproved {
+        let validLoopIntroCorrection = direct.loopLengthMs == reference.loopLengthMs
+            && document.technicalFacts["loopStartTicks"] != nil
+            && reference.introLengthMs == direct.loopLengthMs
+        guard validLoopIntroCorrection || staleLoopImproved else { return nil }
+    }
+
+    if dateImproved {
+        guard document.fields.date != document.fields.year,
+              reference.comment == s98LegacyComment(document.fields) else { return nil }
+    }
+
+    if titleChanged {
+        guard document.fields.title == direct.song,
+              document.sourceEncoding == "Shift_JIS",
+              direct.song == s98TitleDecodedFromRaw(document) else { return nil }
+    }
+
+    return (true, timingImproved, staleLoopImproved, dateImproved, titleImproved, titleTrimImproved)
+}
+
+private func s98TitleDecodedFromRaw(_ document: MetadataDocument) -> String? {
+    guard let rawBlock = document.rawTagBlock,
+          document.sourceEncoding == "Shift_JIS" else { return nil }
+    var bytes = Array(rawBlock)
+    if document.technicalFacts["version"] == "3" {
+        guard bytes.starts(with: Array("[S98]".utf8)) else { return nil }
+        bytes.removeFirst(5)
+        guard !bytes.starts(with: [0xEF, 0xBB, 0xBF]) else { return nil }
+        guard let line = bytes.split(separator: 0x0A, omittingEmptySubsequences: false)
+            .first(where: { String(decoding: $0.prefix(6), as: UTF8.self).lowercased() == "title=" }) else {
+            return nil
+        }
+        guard let equals = line.firstIndex(of: 0x3D) else { return nil }
+        bytes = Array(line[line.index(after: equals)...])
+    }
+    guard let decoded = String(data: Data(bytes), encoding: .shiftJIS) else { return nil }
+    return trimS98TestWhitespace(decoded)
+}
+
+private func trimS98TestWhitespace(_ string: String) -> String {
+    let bytes = Array(string.utf8)
+    var start = 0
+    var end = bytes.count
+    while start < end, bytes[start] <= 0x20 { start += 1 }
+    while end > start, bytes[end - 1] <= 0x20 { end -= 1 }
+    return String(decoding: bytes[start..<end], as: UTF8.self)
+}
+
+private func s98LegacyComment(_ fields: MetadataFields) -> String {
+    var result = fields.comment ?? ""
+    if let year = fields.year, !year.isEmpty {
+        if !result.isEmpty { result += " | " }
+        result += "Date: \(year)"
+    }
+    if let encodedBy = fields.encodedBy, !encodedBy.isEmpty {
+        if !result.isEmpty { result += " | " }
+        result += "Encoded By: \(encodedBy)"
+    }
+    return result
 }
 
 private func inspectLibVGM(fileURL: URL) throws -> (ScannerMetadata, Int32) {
@@ -437,8 +578,19 @@ private func s98Debug(_ fileURL: URL) -> String {
     }
     let version = data[3] >= 0x30 ? data[3] - 0x30 : 0xFF
     let tagOffset = Int(readLE32(data, at: 0x10))
+    let dataOffset = Int(readLE32(data, at: 0x14))
+    let loopOffset = Int(readLE32(data, at: 0x18))
+    let offsets = "version \(version), size \(data.count), dataOffset \(dataOffset), loopOffset \(loopOffset), tagOffset \(tagOffset)"
+    let commandEnd = tagOffset > dataOffset && tagOffset <= data.count ? tagOffset : data.count
+    let tailStart = max(dataOffset, commandEnd - 12)
+    let commandTail = tailStart < commandEnd
+        ? data[tailStart..<commandEnd].map { String(format: "%02X", $0) }.joined(separator: " ")
+        : ""
+    let loopBytes = loopOffset >= 0 && loopOffset < data.count
+        ? data[loopOffset..<min(data.count, loopOffset + 8)].map { String(format: "%02X", $0) }.joined(separator: " ")
+        : "outside file"
     guard tagOffset > 0, tagOffset < data.count else {
-        return "version \(version), no tag block"
+        return "\(offsets), command tail [\(commandTail)], loop bytes [\(loopBytes)], no tag block"
     }
     var end = tagOffset
     while end < data.count, data[end] != 0, end - tagOffset < 120 { end += 1 }
@@ -447,7 +599,7 @@ private func s98Debug(_ fileURL: URL) -> String {
         ?? String(data: tagBytes, encoding: .shiftJIS)
         ?? "<undecodable>"
     let hex = tagBytes.map { String(format: "%02X", $0) }.joined(separator: " ")
-    return "version \(version), tag bytes [\(hex)], text [\(text)]"
+    return "\(offsets), command tail [\(commandTail)], loop bytes [\(loopBytes)], tag bytes [\(hex)], text [\(text)]"
 }
 
 private func readLE32(_ data: Data, at offset: Int) -> UInt32 {

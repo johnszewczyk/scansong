@@ -88,6 +88,10 @@
   ScanSong owns source I/O, bounded VGZ decompression, scanner metadata
   conversion, and catalog publication; it does not link `VGMBoyKit` or a
   playback decoder for those readers.
+- S98 metadata is parsed by the sibling `MetaManCore` package. It preserves
+  ordered/duplicate/user-defined tags and raw tag bytes, with a ScanSong-only
+  adapter to schema 23. Direct S98 timing uses the actual loop offset; libvgm
+  remains only a test oracle for this route.
 - ScanSong owns a direct CRI ADX header reader for type 03/04/05, encrypted
   type-04 headers, and Monster Games ADX. It derives loop length from native
   sample bounds and preserves vgmstream's two-loop plus ten-second fade default

@@ -25,6 +25,12 @@ shared product has no playback decoder dependency and is used only where it
 provides the complete scanner metadata contract. Decoder-backed enumeration,
 timing, dependency validation, and rendering remain on their existing routes.
 
+S98 is the first full reader extracted to the independent `MetaManCore`
+package. It owns the format parser and neutral metadata document; ScanSong owns
+only source routing and the schema-23 adapter. The package preserves all
+ordered v3 tags and raw tag bytes, including user-defined `DATE`, and does not
+link a playback decoder.
+
 ## Format coverage and eventual playback target
 
 Every playable media format admitted by ScanSong is in the eventual
@@ -41,7 +47,7 @@ independent media sources are not playback targets.
 | CocoaSpice playback family | Playable extensions or names | ScanSong metadata methodology and current boundary |
 | --- | --- | --- |
 | `libgme` | `.ay`, `.gbs`, `.hes`, `.kss`, `.nsf`, `.nsfe`, `.sap`, `.spc` | Direct format readers handle all eight: native header/chunk/playlist facts are used without starting libgme. |
-| `libvgm` | `.vgm`, `.vgz`, `.gym`, `.s98`, `.dro` | `.vgm`/`.vgz` use direct GD3/timing readers and `.s98` uses ScanSong's direct header/event/tag reader. `.gym` remains one structure-known row without metadata; `.dro` has no ScanSong route. |
+| `libvgm` | `.vgm`, `.vgz`, `.gym`, `.s98`, `.dro` | `.vgm`/`.vgz` use direct GD3/timing readers and `.s98` uses MetaManCore's direct header/device/tag/event reader. `.gym` remains one structure-known row without metadata and is not an extraction target; `.dro` has no ScanSong route. |
 | `psgplay` | `.sndh` | Shared SNDH header and timing reader; no PSGPlay inspection process. |
 | `mdx` | `.mdx` | VGMBoy-built `vgmboy-mdx-inspect` still supplies decoder-derived enumeration and metadata; dependencies are materialized but not published as tracks. |
 | `standard-audio` | `.aac`, `.aif`, `.aiff`, `.caf`, `.flac`, `.m4a`, `.mp3`, `.wav`, `.wave` | Core Audio supplies duration/common tags, with FLAC Vorbis comments. `.ogg` is routed through this scanner handler too. `.aac`, `.caf`, and `.wave` do not currently have ScanSong routes. |
@@ -83,7 +89,7 @@ when the current playback registry does not yet admit it.
 | `svag-direct` | Konami/SNK SVAG in `.svag` | One track | ScanSong Konami/SNK SVAG header reader | Derives PS-ADPCM sample and loop timing without decoding; unknown `.svag` signatures use vgmstream. |
 | `xa-direct` | Sony CD-XA in `.xa` | One row per XA file/channel subsong | ScanSong XA sector reader | Preserves interleaved channel enumeration and sector-derived timing; RIFF/CDXA wrappers are accepted. Other `.xa` formats use vgmstream. |
 | `vgm-direct` | `.vgm`, `.vgz` | One stream row | `VGMBoyFormatDataCore` VGM/VGZ GD3 and timing | VGZ is bounded gzip decompression, not a generic archive; no decoder is started. |
-| `s98-direct` | `.s98` | One stream row | ScanSong S98 v0-v3 header, event-timing, and tag reader | No playback core is started; exact metadata/timing parity is checked against libvgm as a test-only oracle. |
+| `s98-direct` | `.s98` | One stream row | `MetaManCore` S98 v0-v3 parser plus ScanSong schema adapter | No playback core is started; full `DATE` and actual intro-to-loop timing intentionally improve on libvgm's projection. |
 | `libvgm` | `.gym` | One stream row | Structure-known; metadata remains absent | No scanner-side metadata is invented; `.gym` remains decoder-owned. |
 | `psgplay` | `.sndh` | One row per declared subtune | Shared `VGMBoySNDH` header/timing reader | Never starts PSGPlay during metadata inspection. |
 | `mdx` | `.mdx` | One logical sequence row | VGMBoy-built `vgmboy-mdx-inspect` | A declared PDX bank is prepared but never published as a track. |
@@ -364,25 +370,33 @@ maximum output size, and a declared-but-invalid GD3 block is a malformed-file
 failure rather than a partial metadata row. GYM remains admitted through the
 libVGM route as a structure-known row without invented metadata.
 
-### S98: complete direct metadata and timing route
+### S98: first complete MetaMan reader
 
-`s98-direct` reads S98 versions 0–3 without creating a libvgm player or sound
-device. It validates the version-specific header/device table, walks the event
-stream for total ticks and loop timing, and reads legacy title text or the v3
-`[S98]` tag block. Legacy text uses CP932 conversion with libvgm-compatible
-fallback behavior; v3 UTF-8 BOM tags and the scanner's mapped title, game,
-system, artist, comment, and date fields are projected into `ScannerMetadata`.
+`s98-direct` delegates to `MetaManCore`, which validates S98 versions 0–3,
+parses device tables and the register-command stream, and reads legacy title
+text or the v3 `[S98]` tag block without creating a libvgm player or sound
+device. It retains ordered duplicate and user-defined tags plus the original
+tag-block bytes. BOM-marked tags decode as UTF-8; unmarked v3 tags and legacy
+titles use Shift_JIS decoding. `DATE` is retained as a full
+string and takes normalized-date precedence over `YEAR`, while `YEAR` remains
+independently available.
 
-The compatibility target is the metadata exposed by ScanSong's former libvgm
-inspection path, including its quirks: the bridge reports loop duration in
-both intro and loop fields, maps `YEAR` to date while raw `DATE` is not
-reliably exposed, and can fall back to raw bytes for some long CP932 strings.
-The direct reader preserves those observable results rather than substituting
-different S98 interpretations. A test-only libvgm oracle compares the complete
-metadata and row structure against all 5,081 S98 rows in the inspected
-CocoaSpice catalog (exact parity). In the optimized corpus test, direct
-inspection measured 0.109 ms median / 0.374 ms p95 versus libvgm at 0.142 ms /
-0.492 ms; the direct route does not link or invoke the decoder in production.
+MetaMan fixes two observed libvgm inspection quirks: the intro duration comes
+from the S98 loop offset (the old bridge placed loop duration in both intro and
+loop fields), and stale loop pointers after the `FD` end command are ignored
+instead of becoming fabricated full-song loops. A truncated final register
+write is ignored with a diagnostic while timing from complete preceding events
+is retained. The ScanSong schema adapter places full date text in the existing
+comment projection; catalog schema 23 has no dedicated date column. Unit tests
+cover the library and the ScanSong projection.
+
+The read-only CocoaSpice comparison covers all 5,081 current S98 rows across
+245 source containers: 1,178 match libvgm exactly and 3,903 differences are
+classified as specific improvements (timing, full `DATE`, Shift_JIS decoding,
+or edge-space cleanup); there are no unexplained differences or rejected rows.
+Five stale loop pointers are among the timing corrections. In optimized
+Release measurements, direct median/p95 are 0.136/0.511 ms versus libvgm's
+0.142/0.508 ms. These local-corpus timings are not a cross-machine guarantee.
 
 ## vgmstream and direct raw streams, TXTP, and banks
 

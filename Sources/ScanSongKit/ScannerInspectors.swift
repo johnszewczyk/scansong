@@ -1,4 +1,5 @@
 import Foundation
+import MetaManCore
 import VGMBoyFormatDataCore
 import VGMBoySNDH
 import zlib
@@ -88,7 +89,13 @@ public struct BuiltInFormatInspector: ScanFormatHandler {
             }
             return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)])
         case "s98-direct":
-            let metadata = try S98MetadataReader.read(fileURL: fileURL)
+            let document: MetadataDocument
+            do {
+                document = try MetaManCore.read(fileURL: fileURL)
+            } catch let error as MetadataReadError {
+                throw ScannerInspectionError.malformedFile(error.localizedDescription)
+            }
+            let metadata = ScannerMetadata(metadataDocument: document)
             return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)])
         case "libvgm":
             // GYM remains structure-known without a complete metadata adapter.
