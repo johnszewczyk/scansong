@@ -25,6 +25,40 @@ shared product has no playback decoder dependency and is used only where it
 provides the complete scanner metadata contract. Decoder-backed enumeration,
 timing, dependency validation, and rendering remain on their existing routes.
 
+## CocoaSpice playback metadata interface
+
+Only formats admitted by VGMBoy's
+[`FormatRegistry.playbackDescriptors`](/Users/john/Downloads/Code/VGMMan/VGMBoy/Sources/VGMBoyKit/FormatRegistry.swift)
+are in scope for decoder-replacement work. This is the CocoaSpice playback
+boundary; ScanSong may continue to recognize scanner-only formats, but they
+are not extraction targets. The exact route and metadata source for each
+scanner intake is detailed in the route summary below.
+
+| CocoaSpice playback family | Playable extensions or names | ScanSong metadata methodology and current boundary |
+| --- | --- | --- |
+| `libgme` | `.ay`, `.gbs`, `.hes`, `.kss`, `.nsf`, `.nsfe`, `.sap`, `.spc` | Direct format readers handle all eight: native header/chunk/playlist facts are used without starting libgme. |
+| `libvgm` | `.vgm`, `.vgz`, `.gym`, `.s98`, `.dro` | `.vgm`/`.vgz` use direct GD3/timing readers. `.gym`/`.s98` currently publish one structure-known row without metadata; `.dro` has no ScanSong route. |
+| `psgplay` | `.sndh` | Shared SNDH header and timing reader; no PSGPlay inspection process. |
+| `mdx` | `.mdx` | VGMBoy-built `vgmboy-mdx-inspect` still supplies decoder-derived enumeration and metadata; dependencies are materialized but not published as tracks. |
+| `standard-audio` | `.aac`, `.aif`, `.aiff`, `.caf`, `.flac`, `.m4a`, `.mp3`, `.wav`, `.wave` | Core Audio supplies duration/common tags, with FLAC Vorbis comments. `.ogg` is routed through this scanner handler too. `.aac`, `.caf`, and `.wave` do not currently have ScanSong routes. |
+| `ffmpeg-audio` | `.ape`, `.mp2`, `.tak` | `.ape` uses ScanSong's direct header/tag reader. `.mp2` and `.tak` do not currently have ScanSong routes. |
+| `highly-complete` | `.gsf`, `.minigsf` | ScanSong-owned PSF v0x22/container reader validates payloads and dependency chains without mGBA. |
+| `twosf` | `.2sf`, `.mini2sf` | Direct PSF footer-tag reader; it does not start the playback core. |
+| `vgmstream` | `.aa3`, `.adp`, `.adx`, `.adpcm`, `.ads`, `.agsc`, `.ahx`, `.aifc`, `.at3`, `.aus`, `.bk2`, `.bik`, `.bika`, `.bnk`, `.dsp`, `.dvi`, `.fsb`, `.genh`, `.h4m`, `.hbd`, `.hd`, `.iecs`, `.int`, `.ldat`, `.logg`, `.mib`, `.msf`, `.mtaf`, `.ogg`, `.ps3`, `.rsf`, `.rws`, `.s14`, `.ss2`, `.stream`, `.strm`, `.svag`, `.swav`, `.thp`, `.txtp`, `.vag`, `.xa`, `.xmd`, `.xvag` | `.adx`, `.at3`, `.aus`, `.msf`, `.svag`, and `.xa` use content-aware direct readers for recognized signatures; nonmatching aliases retain vgmstream. `.txtp` and HD-bank inputs use vgmstream with dependency preparation. Other routed streams use `vgmstream-cli -I`. `.ogg` currently uses the Core Audio scanner route. |
+| `lazyusf` | `.usf`, `.miniusf` | Direct PSF footer-tag reader; `.usflib` remains dependency data, not a track. |
+| `playpsf` | `.psf`, `.minipsf`, `.psf2`, `.minipsf2` | Direct PSF footer-tag reader; libraries remain dependency data. |
+| `qsf` | `.qsf`, `.miniqsf` | ScanSong-owned PSF v0x41/QSound container reader validates payload blocks, tags, and dependencies without the QSound core. |
+| `sidplayfp` | `.sid` | Direct PSID/RSID header reader; no duration is invented when the source has none. |
+| `openmpt` | `.669`, `.dmf`, `.far`, `.it`, `.mod`, `.mptm`, `.mtm`, `.okt`, `.ptm`, `.s3m`, `.stm`, `.ult`, `.xm` | ScanSong admits one known-structure row, but metadata remains optional/deferred; no playback decoder inspection runs. |
+| `amiga-uade` | UADE replayer prefixes such as `mod.*`, `p4x.*`, `med.*`, and TFMX | VGMBoy-built `vgmboy-amiga-inspect` still supplies subsong enumeration and metadata; complete-set dependencies are materialized first. |
+
+`metadataPolicy: .direct` means the route does not need a playback-decoder
+process; it does not promise facts the source format never stores. `.decoder`
+marks routes whose scanner result still depends on a decoder/inspector, while
+`.optionalDeferred` admits structure without a complete metadata method. The
+`.ssf`/`.minissf` ScanSong route is intentionally absent from this table because
+it is not admitted by CocoaSpice's playback registry.
+
 ## Route summary
 
 | ScanSong route | Registered extensions | Structure published | Metadata source | Dependency or archive rule |
@@ -53,7 +87,7 @@ timing, dependency validation, and rendering remain on their existing routes.
 | `highly-theoretical` | `.ssf`, `.minissf` | One structurally-known row | `VGMBoyFormatDataCore` PSF footer tags | Scanner tags the PSF container; a native playback route is not implied. |
 | `lazyusf` | `.usf`, `.miniusf` | One structurally-known row | `VGMBoyFormatDataCore` PSF footer tags | `.usflib` is playback dependency data, never a row. |
 | `twosf` | `.2sf`, `.mini2sf` | One structurally-known row | `VGMBoyFormatDataCore` PSF footer tags | `.2sflib` is dependency data, never a row. |
-| `vgmstream` | Direct raw-stream extensions listed below plus non-CRI/Monster `.adx` and non-Sony `.xa` payloads | One row per reported subsong | VGMBoy-built `vgmstream-cli` | Native `-I` inspection; subsong count is bounded. Direct signatures for CRI/Monster ADX and Sony CD-XA use ScanSong readers. |
+| `vgmstream` | Remaining raw-stream extensions listed below plus nonmatching `.adx`, `.at3`, `.aus`, `.msf`, `.svag`, and `.xa` aliases | One row per reported subsong | VGMBoy-built `vgmstream-cli` | Native `-I` inspection; subsong count is bounded. Recognized CRI/Monster ADX, RIFF ATRAC3, Atomic Planet AUS, Sony MSF, Konami/SNK SVAG, and Sony XA signatures use ScanSong readers. |
 | `vgmstream-txtp` | `.txtp` | One row per resolved subsong | `vgmstream-cli` after dependency preparation | Authored TXTP structure is authoritative. |
 | `vgmstream-hd-bank` | `.hd`, `.hbd`, `.iecs` | One row per resolved subsong | `vgmstream-cli` after dependency preparation | Bank/control sidecars are support data; IECS remains a known adapter boundary. |
 | `play-psf1` | `.psf`, `.minipsf` | One structurally-known row | `VGMBoyFormatDataCore` PSF footer tags | `.psflib` is playback dependency data, never a row. |
@@ -416,9 +450,26 @@ conventions, invalid loops, and the Konami padding check. Mean metadata
 inspection time was 0.128 ms/file for the direct reader versus 185.562 ms/file
 for the vgmstream CLI (including its per-file process startup).
 
-### Raw direct streams
+### RIFF ATRAC3/ATRAC3+: complete direct metadata route
 
-The direct vgmstream set is owned by VGMBoy's
+Recognized `.at3` RIFF/WAVE sources use ScanSong's bounds-checked RIFF reader.
+It accepts WAVE ATRAC3 (`0x0270`) and the ATRAC3+ extensible GUID, reads `fact`
+sample count/encoder skip and forward `smpl` or `wsmp` loops, and preserves
+their different inclusive/exclusive loop-end rules. It reproduces vgmstream's
+loop adjustment and default two-loop/ten-second-fade play window. The row title
+remains the filename stem, and the comment follows the RIFF WAVE metadata type.
+No FFmpeg/ATRAC decoder is initialized; nonmatching `.at3` payloads retain the
+vgmstream route.
+
+The read-only live-catalog differential matched all 177 rows in the
+Castlevania: The Dracula X Chronicles and Silent Hill: Origins archives against
+both the saved catalog and vgmstream, including every metadata field and track
+index. Mean direct inspection was 0.405 ms/file versus 1,157.322 ms/file for
+`vgmstream-cli -I`; the decoder timing includes per-file process startup.
+
+### Raw stream suffixes
+
+The vgmstream extension set is owned by VGMBoy's
 [`VGMStreamFormatManifest.swift`](/Users/john/Downloads/Code/VGMMan/VGMBoy/Sources/VGMBoyFormatCore/VGMStreamFormatManifest.swift):
 
 ```text
@@ -426,15 +477,12 @@ The direct vgmstream set is owned by VGMBoy's
 .mib .msf .mtaf .rws .ss2 .stream .strm .svag .vag .xmd
 ```
 
-Although `.msf` remains in VGMBoy's upstream format manifest, ScanSong removes
-it from extension-only routing: recognized Sony signatures use
-`sony-msf-direct`, while other `.msf` signatures retain the vgmstream fallback.
-Likewise, `.aus` is removed from extension-only routing and uses `aus-direct`
-only for the `AUS ` header; nonmatching content retains the vgmstream fallback.
-`.svag` uses `svag-direct` only for the known `Svag` and `VAGm` signatures;
-nonmatching content retains the vgmstream fallback.
-For other direct raw-stream formats, the scanner invokes the bundled
-`vgmstream-cli -I`. It reads sample rate,
+Although `.adx`, `.at3`, `.aus`, `.msf`, `.svag`, and `.xa` remain in VGMBoy's
+upstream manifest, ScanSong removes them from generic extension-only routing.
+Recognized CRI/Monster ADX, RIFF ATRAC3, Atomic Planet AUS, Sony MSF,
+Konami/SNK SVAG, and Sony XA signatures use their direct readers; other aliases
+retain the vgmstream fallback. For the remaining raw-stream formats, the
+scanner invokes the bundled `vgmstream-cli -I`. It reads sample rate,
 total/play sample counts, loop bounds, source name, and decoder metadata. A
 reported subsong count is capped at 1,000; each subsong is inspected with its
 one-based `-s` selector and becomes a separate catalog row. A file that the
@@ -469,10 +517,10 @@ they do not match vgmstream's standard `hd_bd` expectation. Those failures are
 kept visible until an IECS-specific adapter exists; the scanner does not hide
 them or flatten the `.hd` index into a false track.
 
-vgmstream playback-only extensions currently present in VGMBoy but not
-admitted by ScanSong are `.adpcm`, `.bk2`, `.ogg`, `.ps3`, `.s14`, `.swav`, and
-`.xvag`. They need a scanner route and fixture before they should become
-catalog sources.
+vgmstream's playback-only extension set is `.adpcm`, `.bk2`, `.ogg`, `.ps3`,
+`.s14`, `.swav`, and `.xvag`. ScanSong already admits `.ogg` through its
+standard-audio route; the other six have no scanner route and need a fixture
+before they should become catalog sources.
 
 ## Standard audio and modules
 

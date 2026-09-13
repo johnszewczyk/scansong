@@ -114,16 +114,18 @@ public struct ScannerPluginRegistry: Sendable {
     }
 
     /// Routes ordinary suffixes first, then Amiga's replayer-prefix names
-    /// (`p4x.earth`, `mod.xpose-end`, etc.). ADX, AUS, MSF, SVAG, and XA are
+    /// (`p4x.earth`, `mod.xpose-end`, etc.). ADX, AT3, AUS, MSF, SVAG, and XA are
     /// content-aware: recognized CRI/Monster, Atomic Planet AUS, Sony MSF,
-    /// Konami/SNK SVAG, and Sony XA headers use ScanSong readers; other aliases
-    /// retain vgmstream. These path-aware rules are not folded into the extension API.
+    /// RIFF ATRAC3/ATRAC3+, Konami/SNK SVAG, and Sony XA headers use ScanSong
+    /// readers; other aliases retain vgmstream. These path-aware rules are not
+    /// folded into the extension API.
     public func route(forPath path: String, archiveMember: Bool = false) -> ScannerRoute? {
         let fileURL = URL(fileURLWithPath: path)
         let extensionName = ScannerPluginDescriptor.normalize(fileURL.pathExtension)
         let contentRoutedPlugin: String?
         switch extensionName {
         case "adx": contentRoutedPlugin = Self.isDirectADX(at: fileURL) ? "adx-direct" : "vgmstream"
+        case "at3": contentRoutedPlugin = AT3MetadataReader.supports(fileURL: fileURL) ? "at3-direct" : "vgmstream"
         case "aus": contentRoutedPlugin = Self.isDirectAUS(at: fileURL) ? "aus-direct" : "vgmstream"
         case "msf": contentRoutedPlugin = Self.isDirectSonyMSF(at: fileURL) ? "sony-msf-direct" : "vgmstream"
         case "svag": contentRoutedPlugin = Self.isDirectSVAG(at: fileURL) ? "svag-direct" : "vgmstream"

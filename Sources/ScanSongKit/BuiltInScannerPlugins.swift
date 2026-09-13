@@ -2,6 +2,10 @@ import Foundation
 import VGMBoyFormatCore
 
 public enum BuiltInScannerPlugins {
+    // This registry includes ScanSong-only formats too. Decoder-replacement
+    // work is limited to its CocoaSpice-playable intersection; see
+    // ai/subsystem-agent/format-accommodations.md for that scoped matrix.
+
     /// Directly catalogued GameCube members. TXTP is part of the shared
     /// GameCube manifest but takes the dependency-enumeration route below.
     public static let gameCubeVGMStreamExtensions = Set(
@@ -11,9 +15,12 @@ public enum BuiltInScannerPlugins {
     )
 
     public static let directVGMStreamExtensions =
-        VGMStreamFormatManifest.directScannerExtensions.subtracting(["adx", "aus", "msf", "svag", "xa"])
+        VGMStreamFormatManifest.directScannerExtensions.subtracting(["adx", "at3", "aus", "msf", "svag", "xa"])
 
-    public static let registry = ScannerPluginRegistry(descriptors: [
+    // Keep scanner methodologies visible at the route declaration site.
+    // `.direct` means no playback decoder process is needed; a format may
+    // still expose only the facts its file structure actually contains.
+    private static let directMetadataDescriptors: [ScannerPluginDescriptor] = [
         .init(pluginID: "spc-direct", displayName: "SPC ID666/xID6 reader", supportedExtensions: ["spc"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),
         .init(pluginID: "game-music-direct", displayName: "NSF/GBS header reader", supportedExtensions: ["gbs", "nsf"], structurePolicy: .enumerate, metadataPolicy: .direct, priority: 20),
         .init(pluginID: "nsfe-direct", displayName: "NSFE chunk reader", supportedExtensions: ["nsfe"], structurePolicy: .enumerate, metadataPolicy: .direct, priority: 20),
@@ -21,32 +28,47 @@ public enum BuiltInScannerPlugins {
         .init(pluginID: "ay-direct", displayName: "AY metadata reader", supportedExtensions: ["ay"], structurePolicy: .enumerate, metadataPolicy: .direct, priority: 20),
         .init(pluginID: "sap-direct", displayName: "SAP header reader", supportedExtensions: ["sap"], structurePolicy: .enumerate, metadataPolicy: .direct, priority: 20),
         .init(pluginID: "hes-direct", displayName: "HES header and M3U reader", supportedExtensions: ["hes"], structurePolicy: .enumerate, metadataPolicy: .direct, priority: 20),
-        .init(pluginID: "openmpt", displayName: "libopenmpt", supportedExtensions: ["669", "dmf", "far", "it", "mod", "mptm", "mtm", "okt", "ptm", "s3m", "stm", "ult", "xm"], structurePolicy: .knownSingle, metadataPolicy: .optionalDeferred, priority: 10),
         .init(pluginID: "standard-audio", displayName: "Core Audio", supportedExtensions: ["aif", "aiff", "flac", "m4a", "mp3", "ogg", "wav"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 10),
         .init(pluginID: "ape-direct", displayName: "APE header and tag reader", supportedExtensions: ["ape"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 10),
         .init(pluginID: "adx-direct", displayName: "CRI ADX header reader", supportedExtensions: ["adx"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),
+        .init(pluginID: "at3-direct", displayName: "RIFF ATRAC3 header reader", supportedExtensions: ["at3"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),
         .init(pluginID: "aus-direct", displayName: "Atomic Planet AUS header reader", supportedExtensions: ["aus"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),
         .init(pluginID: "sony-msf-direct", displayName: "Sony MSF header reader", supportedExtensions: ["msf"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),
         .init(pluginID: "svag-direct", displayName: "Konami/SNK SVAG header reader", supportedExtensions: ["svag"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),
         .init(pluginID: "xa-direct", displayName: "Sony XA sector reader", supportedExtensions: ["xa"], structurePolicy: .enumerate, metadataPolicy: .direct, priority: 20),
         .init(pluginID: "vgm-direct", displayName: "VGM/VGZ header reader", supportedExtensions: ["vgm", "vgz"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),
-        .init(pluginID: "libvgm", displayName: "libVGM", supportedExtensions: ["gym", "s98"], structurePolicy: .knownSingle, metadataPolicy: .decoder, priority: 10),
         .init(pluginID: "psgplay", displayName: "PSGPlay", supportedExtensions: ["sndh"], structurePolicy: .enumerate, metadataPolicy: .direct, priority: 10),
-        .init(pluginID: "mdx", displayName: "mdxmini", supportedExtensions: ["mdx"], structurePolicy: .knownSingle, metadataPolicy: .decoder, priority: 10),
-        .init(pluginID: "amiga-uade", displayName: "UADE", supportedExtensions: AmigaFormatManifest.prefixes, supportsMultiTrack: true, structurePolicy: .enumerate, metadataPolicy: .decoder, priority: 20),
         .init(pluginID: "gsf-direct", displayName: "GSF PSF container reader", supportedExtensions: ["gsf", "minigsf"], structurePolicy: .dependencyEnumerate, metadataPolicy: .direct, priority: 10),
         .init(pluginID: "highly-theoretical", displayName: "Highly Theoretical", supportedExtensions: ["ssf", "minissf"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 10),
         .init(pluginID: "lazyusf", displayName: "LazyUSF", supportedExtensions: ["usf", "miniusf"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 10),
         .init(pluginID: "twosf", displayName: "2SF", supportedExtensions: ["2sf", "mini2sf"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 10),
-        .init(pluginID: "vgmstream-hd-bank", displayName: "vgmstream", supportedExtensions: ["hd", "hbd", "iecs"], structurePolicy: .dependencyEnumerate, metadataPolicy: .decoder, priority: 10),
-        .init(pluginID: "vgmstream-txtp", displayName: "vgmstream", supportedExtensions: ["txtp"], structurePolicy: .dependencyEnumerate, metadataPolicy: .decoder, priority: 10),
-        .init(pluginID: "vgmstream", displayName: "vgmstream", supportedExtensions: directVGMStreamExtensions.union(["adx", "aus", "msf", "svag", "xa"]), structurePolicy: .enumerate, metadataPolicy: .decoder, priority: 10),
         .init(pluginID: "play-psf1", displayName: "Play! PSF", supportedExtensions: ["psf", "minipsf"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 10),
         .init(pluginID: "qsf-direct", displayName: "QSF PSF container reader", supportedExtensions: ["qsf"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 10),
         .init(pluginID: "qsf-mini-direct", displayName: "miniQSF PSF container reader", supportedExtensions: ["miniqsf"], structurePolicy: .dependencyEnumerate, metadataPolicy: .direct, priority: 10),
         .init(pluginID: "play-psf2", displayName: "Play! PSF2", supportedExtensions: ["psf2", "minipsf2"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 10),
         .init(pluginID: "sid", displayName: "SID", supportedExtensions: ["sid"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 10)
-    ])
+    ]
+
+    // These routes still need their playback/inspection implementation to
+    // provide enumeration or decoder-owned timing and metadata.
+    private static let decoderMetadataDescriptors: [ScannerPluginDescriptor] = [
+        .init(pluginID: "libvgm", displayName: "libVGM", supportedExtensions: ["gym", "s98"], structurePolicy: .knownSingle, metadataPolicy: .decoder, priority: 10),
+        .init(pluginID: "mdx", displayName: "mdxmini", supportedExtensions: ["mdx"], structurePolicy: .knownSingle, metadataPolicy: .decoder, priority: 10),
+        .init(pluginID: "amiga-uade", displayName: "UADE", supportedExtensions: AmigaFormatManifest.prefixes, supportsMultiTrack: true, structurePolicy: .enumerate, metadataPolicy: .decoder, priority: 20),
+        .init(pluginID: "vgmstream-hd-bank", displayName: "vgmstream", supportedExtensions: ["hd", "hbd", "iecs"], structurePolicy: .dependencyEnumerate, metadataPolicy: .decoder, priority: 10),
+        .init(pluginID: "vgmstream-txtp", displayName: "vgmstream", supportedExtensions: ["txtp"], structurePolicy: .dependencyEnumerate, metadataPolicy: .decoder, priority: 10),
+        .init(pluginID: "vgmstream", displayName: "vgmstream", supportedExtensions: directVGMStreamExtensions.union(["adx", "at3", "aus", "msf", "svag", "xa"]), structurePolicy: .enumerate, metadataPolicy: .decoder, priority: 10)
+    ]
+
+    // Structural admission is useful, but metadata remains intentionally
+    // optional until a complete independent method is available.
+    private static let deferredMetadataDescriptors: [ScannerPluginDescriptor] = [
+        .init(pluginID: "openmpt", displayName: "libopenmpt", supportedExtensions: ["669", "dmf", "far", "it", "mod", "mptm", "mtm", "okt", "ptm", "s3m", "stm", "ult", "xm"], structurePolicy: .knownSingle, metadataPolicy: .optionalDeferred, priority: 10)
+    ]
+
+    public static let registry = ScannerPluginRegistry(
+        descriptors: directMetadataDescriptors + decoderMetadataDescriptors + deferredMetadataDescriptors
+    )
 
     public static let archiveExtensions: Set<String> = ["7z", "lha", "rar", "rsn", "tar.zst", "tar.zstd", "tzst", "zip", "zst", "zstd"]
 }
