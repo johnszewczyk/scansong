@@ -164,6 +164,8 @@ error.
   type-03/04/05 and encrypted type-04 timing, including vgmstream's default
   loop/fade play window. Content under `.adx` that is Ogg, RIFF, or another
   non-CRI/Monster alias retains the vgmstream route.
+- Sony CD-XA sector and interleaved subsong metadata through a ScanSong-owned
+  reader; other formats that reuse `.xa` retain the vgmstream route.
 - Structurally known single rows for standard audio (including OGG Vorbis),
   modules, and registered formats whose optional metadata can remain empty.
 - Tracker/module rows (S3M, MOD, IT, XM, MTM, STM, and related) via

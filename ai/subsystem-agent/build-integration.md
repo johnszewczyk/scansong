@@ -39,6 +39,9 @@ executables.
   `vgmstream-cli`. `.adx` content without a CRI or Monster Games signature
   remains on the vgmstream route; the helper also remains necessary for the
   other registered vgmstream formats.
+- Sony CD-XA sector streams use ScanSong's in-process structure/timing reader
+  and never start `vgmstream-cli`; other formats sharing `.xa` remain on that
+  helper route.
 
 ## Failure Boundaries
 

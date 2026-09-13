@@ -40,6 +40,7 @@ timing, dependency validation, and rendering remain on their existing routes.
 | `standard-audio` | `.aif`, `.aiff`, `.flac`, `.m4a`, `.mp3`, `.ogg`, `.wav` | One track | Core Audio duration and common tags; FLAC Vorbis comments | Exact decoded duration is preferred. |
 | `ape-direct` | `.ape` | One validated single row | ScanSong APE header and tag reader | Header-derived duration plus APEv2 and leading ID3 common tags; no decoder startup. |
 | `adx-direct` | CRI ADX in `.adx` | One track | ScanSong CRI ADX header reader | Preserves native sample/loop bounds and vgmstream's default two-loop/10-second-fade play window; non-CRI/Monster signatures (including Ogg and RIFF aliases) use vgmstream. |
+| `xa-direct` | Sony CD-XA in `.xa` | One row per XA file/channel subsong | ScanSong XA sector reader | Preserves interleaved channel enumeration and sector-derived timing; RIFF/CDXA wrappers are accepted. Other `.xa` formats use vgmstream. |
 | `vgm-direct` | `.vgm`, `.vgz` | One stream row | `VGMBoyFormatDataCore` VGM/VGZ GD3 and timing | VGZ is bounded gzip decompression, not a generic archive; no decoder is started. |
 | `libvgm` | `.gym`, `.s98` | One stream row | Decoder-owned; no scanner-side metadata is invented | Remains a decoder route until a complete scanner adapter is fixture-backed. |
 | `psgplay` | `.sndh` | One row per declared subtune | Shared `VGMBoySNDH` header/timing reader | Never starts PSGPlay during metadata inspection. |
@@ -49,7 +50,7 @@ timing, dependency validation, and rendering remain on their existing routes.
 | `highly-theoretical` | `.ssf`, `.minissf` | One structurally-known row | `VGMBoyFormatDataCore` PSF footer tags | Scanner tags the PSF container; a native playback route is not implied. |
 | `lazyusf` | `.usf`, `.miniusf` | One structurally-known row | `VGMBoyFormatDataCore` PSF footer tags | `.usflib` is playback dependency data, never a row. |
 | `twosf` | `.2sf`, `.mini2sf` | One structurally-known row | `VGMBoyFormatDataCore` PSF footer tags | `.2sflib` is dependency data, never a row. |
-| `vgmstream` | Direct raw-stream extensions listed below plus `.adx` payloads without recognized CRI/Monster headers | One row per reported subsong | VGMBoy-built `vgmstream-cli` | Native `-I` inspection; subsong count is bounded. CRI/Monster ADX is handled by `adx-direct`. |
+| `vgmstream` | Direct raw-stream extensions listed below plus non-CRI/Monster `.adx` and non-Sony `.xa` payloads | One row per reported subsong | VGMBoy-built `vgmstream-cli` | Native `-I` inspection; subsong count is bounded. Direct signatures for CRI/Monster ADX and Sony CD-XA use ScanSong readers. |
 | `vgmstream-txtp` | `.txtp` | One row per resolved subsong | `vgmstream-cli` after dependency preparation | Authored TXTP structure is authoritative. |
 | `vgmstream-hd-bank` | `.hd`, `.hbd`, `.iecs` | One row per resolved subsong | `vgmstream-cli` after dependency preparation | Bank/control sidecars are support data; IECS remains a known adapter boundary. |
 | `play-psf1` | `.psf`, `.minipsf` | One structurally-known row | `VGMBoyFormatDataCore` PSF footer tags | `.psflib` is playback dependency data, never a row. |
@@ -325,6 +326,30 @@ adapter is fixture-backed.
 
 ## vgmstream raw streams, TXTP, and banks
 
+### Sony CD-XA
+
+Recognized raw Sony XA sectors and RIFF/CDXA-wrapped sectors use ScanSong's
+in-process sector reader. It mirrors vgmstream's audio-sector test, first
+three-audio-sector frame-header validation, 128 per-channel state slots,
+interleaved file/channel subsong ordering, end-of-file resets, stream labels,
+and sample-rate/form/bit-depth timing calculation. It does not decode ADPCM or
+start `vgmstream-cli`. For sparse raw files, vgmstream's 32-bit probe offset
+can wrap and revisit data after EOF; the direct reader folds those duplicate
+probes while retaining the decoder's initial 32-sector search limit. Other
+`.xa` signatures, including Maxis XA, XA30, 04SW, and AIFC aliases, remain on
+vgmstream. The decoder also accepts a 100-byte raw prefix when its first XA
+header/frame is valid: out-of-range frame reads are zero-filled. The direct
+reader deliberately preserves this legacy boundary rather than tightening it.
+
+The read-only live-catalog comparison matched all 867 saved rows against both
+the direct reader and vgmstream (827 files across 18 archives), including
+multi-subsong indexes. In that run, mean inspection time was 8.961 ms/file for
+the direct reader and 70.581 ms/file for the CLI inspector. Sparse one-sector,
+two-sector, audio-plus-non-audio, and 100-byte-prefix probes also matched the
+legacy inspector; those decoder probes took 1.0–2.3 seconds each due to its
+offset wrap. Archive extraction is serialized, with one archive payload at a
+time.
+
 ### CRI ADX
 
 CRI ADX files route to ScanSong's in-process metadata reader rather than
@@ -344,7 +369,7 @@ The direct vgmstream set is owned by VGMBoy's
 
 ```text
 .aa3 .ads .ahx .aifc .at3 .aus .bik .bika .bnk .dvi .fsb .genh .int
-.mib .msf .mtaf .rws .ss2 .stream .strm .svag .vag .xa .xmd
+.mib .msf .mtaf .rws .ss2 .stream .strm .svag .vag .xmd
 ```
 
 The scanner invokes the bundled `vgmstream-cli -I`. It reads sample rate,

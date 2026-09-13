@@ -114,17 +114,23 @@ public struct ScannerPluginRegistry: Sendable {
     }
 
     /// Routes ordinary suffixes first, then Amiga's replayer-prefix names
-    /// (`p4x.earth`, `mod.xpose-end`, etc.). ADX is content-aware: recognized
-    /// CRI/Monster headers use ScanSong's reader; other `.adx` aliases retain
-    /// vgmstream. These path-aware rules are not folded into the extension API.
+    /// (`p4x.earth`, `mod.xpose-end`, etc.). ADX and XA are content-aware:
+    /// recognized CRI/Monster and Sony XA headers use ScanSong readers; other
+    /// aliases retain vgmstream. These path-aware rules are not folded into
+    /// the extension API.
     public func route(forPath path: String, archiveMember: Bool = false) -> ScannerRoute? {
         let fileURL = URL(fileURLWithPath: path)
         let extensionName = ScannerPluginDescriptor.normalize(fileURL.pathExtension)
-        if extensionName == "adx" {
-            let pluginID = Self.isDirectADX(at: fileURL) ? "adx-direct" : "vgmstream"
+        let contentRoutedPlugin: String?
+        switch extensionName {
+        case "adx": contentRoutedPlugin = Self.isDirectADX(at: fileURL) ? "adx-direct" : "vgmstream"
+        case "xa": contentRoutedPlugin = Self.isDirectXA(at: fileURL) ? "xa-direct" : "vgmstream"
+        default: contentRoutedPlugin = nil
+        }
+        if let pluginID = contentRoutedPlugin {
             if let descriptor = descriptors.first(where: {
                 $0.pluginID == pluginID
-                    && $0.supportedExtensions.contains("adx")
+                    && $0.supportedExtensions.contains(extensionName)
                     && (!archiveMember || $0.supportsArchiveMembers)
             }) {
                 return Self.route(for: descriptor, extensionName: extensionName)
@@ -168,9 +174,24 @@ public struct ScannerPluginRegistry: Sendable {
         defer { try? file.close() }
         guard let header = try? file.read(upToCount: 4) else { return false }
         let bytes = [UInt8](header)
-        let monster = bytes.count >= 4 && bytes[0] == 0x02 && bytes[1] == 0x00 && bytes[2] == 0x00 && bytes[3] == 0x00
+        let monster = bytes.count >= 4
+            && bytes[0] == 0x02 && bytes[1] == 0x00 && bytes[2] == 0x00 && bytes[3] == 0x00
         let cri = bytes.count >= 2 && bytes[0] == 0x80 && bytes[1] == 0x00
         return monster || cri
+    }
+
+    private static func isDirectXA(at fileURL: URL) -> Bool {
+        guard let file = try? FileHandle(forReadingFrom: fileURL) else { return false }
+        defer { try? file.close() }
+        guard let header = try? file.read(upToCount: 0x2C) else { return false }
+        let bytes = [UInt8](header)
+        let rawSync: [UInt8] = [0x00] + Array(repeating: 0xFF, count: 10) + [0x00]
+        let rawXA = bytes.count >= rawSync.count && bytes.prefix(rawSync.count).elementsEqual(rawSync)
+        let riffCDXA = bytes.count >= 0x10
+            && bytes[0..<4].elementsEqual(Array("RIFF".utf8))
+            && bytes[0x08..<0x0C].elementsEqual(Array("CDXA".utf8))
+            && bytes[0x0C..<0x10].elementsEqual(Array("fmt ".utf8))
+        return rawXA || riffCDXA
     }
 }
 

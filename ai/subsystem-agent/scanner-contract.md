@@ -94,6 +94,10 @@
   when computing play length. `.adx` files without recognized CRI/Monster
   headers remain on vgmstream; the supported CRI ADX paths do not launch or
   link a playback decoder.
+- ScanSong owns a direct Sony CD-XA sector reader for recognized raw-sector and
+  RIFF/CDXA signatures. It preserves vgmstream's XA validation, interleaved
+  file/channel subsong order, labels, and sample timing without ADPCM decoding.
+  Other `.xa` aliases remain on vgmstream.
 - Unknown inputs and unavailable required adapters are typed diagnostics, never
   invented playable rows or calls into a host scanner.
 - The persisted ScanSong file-type policy ignores only documented decoder-absent

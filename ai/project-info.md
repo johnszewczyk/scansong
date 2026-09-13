@@ -27,6 +27,8 @@ builder or prepare mGBA/QSF as scanner build-time collateral.
 CRI ADX headers and native loop timing are also read in-process by ScanSong;
 the vgmstream helper remains for other streams and non-CRI/Monster payloads
 that reuse `.adx` (including Ogg and RIFF).
+Sony CD-XA sectors and interleaved subsongs are also read in-process; unrelated
+formats using `.xa` remain on the vgmstream route.
 
 ## Task Routing
 
