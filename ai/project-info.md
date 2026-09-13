@@ -29,6 +29,9 @@ the vgmstream helper remains for other streams and non-CRI/Monster payloads
 that reuse `.adx` (including Ogg and RIFF).
 Sony CD-XA sectors and interleaved subsongs are also read in-process; unrelated
 formats using `.xa` remain on the vgmstream route.
+Recognized Sony MSF headers are likewise read in-process, including codec-based
+sample/loop timing and stream names; `MSF ` and other non-Sony aliases remain on
+the vgmstream route.
 
 ## Task Routing
 
@@ -66,8 +69,8 @@ generic error suppressor: supported families remain inspectable. For example,
 reported as an archive-member failure instead of being hidden.
 
 The following previously failing vgmstream routes are now wired through the
-scanner's bundled inspector: `.strm`, `.ahx`, `.bik`, `.bika`, `.msf`, `.xmd`,
-`.txtp`, and `.hd`/`.hbd`/`.iecs`. TXTP dependency aliases are materialized
+scanner's bundled inspector: `.strm`, `.ahx`, `.bik`, `.bika`, `.xmd`, `.txtp`,
+and `.hd`/`.hbd`/`.iecs`. TXTP dependency aliases are materialized
 inside the extracted archive before inspection, including underscore-prefixed
 TXTH aliases such as `_.ldat.txth`. Archive inspection keeps valid
 members when another member fails, and records the failed member in the scan
@@ -124,11 +127,11 @@ collapsed into one ignored-format bucket:
   not ignored.
 - Silent Hill HD Collection `.hd` members fail to open through the current
   `.hd`/`.hbd`/`.iecs` adapter. The archive contains IECS `.hd` indexes with
-  `.td` control data and separate `.msf` ATRAC streams, while the bundled
-  vgmstream `hd_bd` reader expects a standard `.hd` plus `.bd` layout (or a
-  combined `.hbd`). The `.msf` payloads open successfully, so this is a
-  format-adapter gap rather than evidence that the audio is corrupt; keep the
-  `.hd` failures visible until the matching IECS/`.td` adapter is added.
+  `.td` control data and separate Sony `.msf` ATRAC streams. The direct MSF
+  reader opens those streams, but vgmstream's `hd_bd` reader expects a standard
+  `.hd` plus `.bd` layout (or a combined `.hbd`). The `.hd` files therefore
+  remain a format-adapter gap rather than evidence that the audio is corrupt;
+  keep their failures visible until the matching IECS/`.td` adapter is added.
 
 The last-result scan log uses uniform `status | detail | path` columns. Paths
 are relative to the selected scanner root, including the `archive#member`

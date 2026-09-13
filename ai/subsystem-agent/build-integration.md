@@ -42,6 +42,9 @@ executables.
 - Sony CD-XA sector streams use ScanSong's in-process structure/timing reader
   and never start `vgmstream-cli`; other formats sharing `.xa` remain on that
   helper route.
+- Recognized Sony MSF files use ScanSong's in-process container/metadata reader
+  and never start `vgmstream-cli`; `MSF ` and other `.msf` aliases retain the
+  helper route.
 
 ## Failure Boundaries
 
@@ -62,6 +65,9 @@ executables.
   in VGMBoy for playback and is not an APE scanner requirement.
 - CRI ADX metadata is read by ScanSong's direct header/timing reader; vgmstream
   remains a VGMBoy playback route and a scanner helper for other formats.
+- Sony MSF metadata is read by ScanSong's direct header/frame reader; vgmstream
+  remains the fallback for non-Sony `.msf` aliases and scanner support for
+  other formats.
 - GSF/miniGSF metadata and structure are read by ScanSong's direct PSF/GSF
   parser; Highly Complete/mGBA remains a VGMBoy playback route, not a scanner
   process or runtime link.

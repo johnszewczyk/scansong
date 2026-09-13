@@ -40,6 +40,7 @@ timing, dependency validation, and rendering remain on their existing routes.
 | `standard-audio` | `.aif`, `.aiff`, `.flac`, `.m4a`, `.mp3`, `.ogg`, `.wav` | One track | Core Audio duration and common tags; FLAC Vorbis comments | Exact decoded duration is preferred. |
 | `ape-direct` | `.ape` | One validated single row | ScanSong APE header and tag reader | Header-derived duration plus APEv2 and leading ID3 common tags; no decoder startup. |
 | `adx-direct` | CRI ADX in `.adx` | One track | ScanSong CRI ADX header reader | Preserves native sample/loop bounds and vgmstream's default two-loop/10-second-fade play window; non-CRI/Monster signatures (including Ogg and RIFF aliases) use vgmstream. |
+| `sony-msf-direct` | Sony MSF in `.msf` | One track | ScanSong Sony MSF header and frame reader | Reads supported codec timing, native stream name, and loop bounds without audio decoding; TamaSoft `MSF ` and other non-Sony aliases use vgmstream. |
 | `xa-direct` | Sony CD-XA in `.xa` | One row per XA file/channel subsong | ScanSong XA sector reader | Preserves interleaved channel enumeration and sector-derived timing; RIFF/CDXA wrappers are accepted. Other `.xa` formats use vgmstream. |
 | `vgm-direct` | `.vgm`, `.vgz` | One stream row | `VGMBoyFormatDataCore` VGM/VGZ GD3 and timing | VGZ is bounded gzip decompression, not a generic archive; no decoder is started. |
 | `libvgm` | `.gym`, `.s98` | One stream row | Decoder-owned; no scanner-side metadata is invented | Remains a decoder route until a complete scanner adapter is fixture-backed. |
@@ -324,7 +325,7 @@ the libVGM route but do not receive invented GD3 metadata when their native
 headers do not expose it; they remain decoder-owned until a complete scanner
 adapter is fixture-backed.
 
-## vgmstream raw streams, TXTP, and banks
+## vgmstream and direct raw streams, TXTP, and banks
 
 ### Sony CD-XA
 
@@ -362,6 +363,23 @@ live-catalog test compares all saved ADX fields against both this reader and
 payloads named `.adx` (including Ogg and RIFF aliases) remain on vgmstream, so
 extension alone does not classify content as CRI ADX.
 
+### Sony MSF
+
+Recognized Sony MSF signatures use ScanSong's in-process reader. It parses the
+container header and stream name, then derives sample and loop bounds for PCM,
+PSX ADPCM, ATRAC3 variants, or MPEG by counting frame headers; it never decodes
+audio or starts `vgmstream-cli`. ATRAC encoder delay and vgmstream's invalid-loop
+cleanup are preserved. Play length retains the CLI default of two loop
+iterations plus a ten-second fade. Content routing leaves TamaSoft's `MSF `
+signature and other non-Sony `.msf` aliases on vgmstream.
+
+The read-only live-catalog differential matched all 799 rows against both the
+saved catalog and vgmstream across 799 files in four archives. The corpus
+covered codecs 0, 4, 5, and 7; focused fixtures also cover codecs 1, 3, and 6,
+MPEG CBR/VBR, TamaSoft fallback, and invalid loops. Mean metadata inspection
+time was 2.566 ms/file for the direct reader versus 239.738 ms/file for the
+vgmstream CLI (including its per-file process startup).
+
 ### Raw direct streams
 
 The direct vgmstream set is owned by VGMBoy's
@@ -372,7 +390,11 @@ The direct vgmstream set is owned by VGMBoy's
 .mib .msf .mtaf .rws .ss2 .stream .strm .svag .vag .xmd
 ```
 
-The scanner invokes the bundled `vgmstream-cli -I`. It reads sample rate,
+Although `.msf` remains in VGMBoy's upstream format manifest, ScanSong removes
+it from extension-only routing: recognized Sony signatures use
+`sony-msf-direct`, while other `.msf` signatures retain the vgmstream fallback.
+For other direct raw-stream formats, the scanner invokes the bundled
+`vgmstream-cli -I`. It reads sample rate,
 total/play sample counts, loop bounds, source name, and decoder metadata. A
 reported subsong count is capped at 1,000; each subsong is inspected with its
 one-based `-s` selector and becomes a separate catalog row. A file that the

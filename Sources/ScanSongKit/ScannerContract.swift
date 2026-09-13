@@ -114,16 +114,17 @@ public struct ScannerPluginRegistry: Sendable {
     }
 
     /// Routes ordinary suffixes first, then Amiga's replayer-prefix names
-    /// (`p4x.earth`, `mod.xpose-end`, etc.). ADX and XA are content-aware:
-    /// recognized CRI/Monster and Sony XA headers use ScanSong readers; other
-    /// aliases retain vgmstream. These path-aware rules are not folded into
-    /// the extension API.
+    /// (`p4x.earth`, `mod.xpose-end`, etc.). ADX, MSF, and XA are
+    /// content-aware: recognized CRI/Monster, Sony MSF, and Sony XA headers
+    /// use ScanSong readers; other aliases retain vgmstream. These path-aware
+    /// rules are not folded into the extension API.
     public func route(forPath path: String, archiveMember: Bool = false) -> ScannerRoute? {
         let fileURL = URL(fileURLWithPath: path)
         let extensionName = ScannerPluginDescriptor.normalize(fileURL.pathExtension)
         let contentRoutedPlugin: String?
         switch extensionName {
         case "adx": contentRoutedPlugin = Self.isDirectADX(at: fileURL) ? "adx-direct" : "vgmstream"
+        case "msf": contentRoutedPlugin = Self.isDirectSonyMSF(at: fileURL) ? "sony-msf-direct" : "vgmstream"
         case "xa": contentRoutedPlugin = Self.isDirectXA(at: fileURL) ? "xa-direct" : "vgmstream"
         default: contentRoutedPlugin = nil
         }
@@ -192,6 +193,13 @@ public struct ScannerPluginRegistry: Sendable {
             && bytes[0x08..<0x0C].elementsEqual(Array("CDXA".utf8))
             && bytes[0x0C..<0x10].elementsEqual(Array("fmt ".utf8))
         return rawXA || riffCDXA
+    }
+
+    private static func isDirectSonyMSF(at fileURL: URL) -> Bool {
+        guard let file = try? FileHandle(forReadingFrom: fileURL) else { return false }
+        defer { try? file.close() }
+        guard let header = try? file.read(upToCount: 4), header.count == 4 else { return false }
+        return header.prefix(3).elementsEqual(Array("MSF".utf8)) && header[3] != 0x20
     }
 }
 
