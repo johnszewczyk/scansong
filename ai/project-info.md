@@ -113,8 +113,11 @@ collapsed into one ignored-format bucket:
   dependency-free chunk route, including playlist, labels, authors, and
   authored time/fade values.
 - VGM and gzip-compressed VGZ GD3/timing data are harvested directly with a
-  bounded decompression limit; GYM and S98 remain on the libVGM route until
-  their native metadata structures have fixture-backed readers.
+  bounded decompression limit. S98 v0-v3 header, event-timing, and tag data
+  are read directly and match the libVGM inspection result across all 5,081
+  S98 rows in the inspected CocoaSpice catalog; optimized direct inspection is
+  faster in the corpus comparison. GYM remains a structure-known libVGM route
+  without scanner metadata.
 - HES inspection applies a same-basename sibling `.m3u` when present. The
   playlist is not catalogued as a track itself, but it maps raw HES address
   slots to authored music/SFX tracks and their lengths.

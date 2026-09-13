@@ -87,9 +87,11 @@ public struct BuiltInFormatInspector: ScanFormatHandler {
                 )
             }
             return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)])
+        case "s98-direct":
+            let metadata = try S98MetadataReader.read(fileURL: fileURL)
+            return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)])
         case "libvgm":
-            // GYM and S98 remain decoder-owned until their complete scanner
-            // metadata contract has a fixture-backed adapter.
+            // GYM remains structure-known without a complete metadata adapter.
             return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: nil)])
         case "psgplay":
             return try SNDHInspector.inspect(fileURL: fileURL, route: route)

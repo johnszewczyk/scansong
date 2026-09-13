@@ -14,7 +14,7 @@ let package = Package(
         .package(path: "../VGMBoy")
     ],
     targets: [
-        // Test-only oracle for reader parity; production scanner targets do not depend on libgme.
+        // Test-only decoder oracles for reader parity; production scanner targets do not depend on these cores.
         .systemLibrary(
             name: "CGameMusicEmu",
             path: "Sources/CGME",
@@ -30,6 +30,7 @@ let package = Package(
             ],
             linkerSettings: [
                 .linkedLibrary("sqlite3"),
+                .linkedLibrary("iconv"),
                 .linkedFramework("AVFoundation")
             ]
         ),
@@ -47,7 +48,8 @@ let package = Package(
             dependencies: [
                 "ScanSongKit",
                 "CGameMusicEmu",
-                .product(name: "VGMBoyFormatDataCore", package: "VGMBoy")
+                .product(name: "VGMBoyFormatDataCore", package: "VGMBoy"),
+                .product(name: "VGMBoyKit", package: "VGMBoy")
             ]
         )
     ],

@@ -31,6 +31,8 @@ import zlib
     #expect(registry.route(pathExtension: "vgz")?.metadataPolicy == .direct)
     #expect(registry.route(pathExtension: "vgm")?.structurePolicy == .knownSingle)
     #expect(registry.route(pathExtension: "gym")?.pluginID == "libvgm")
+    #expect(registry.route(pathExtension: "s98")?.pluginID == "s98-direct")
+    #expect(registry.route(pathExtension: "s98")?.metadataPolicy == .direct)
     #expect(registry.route(pathExtension: "flac")?.metadataPolicy == .direct)
     #expect(registry.route(pathExtension: "txtp")?.structurePolicy == .dependencyEnumerate)
     #expect(registry.route(pathExtension: "sid")?.structurePolicy == .knownSingle)

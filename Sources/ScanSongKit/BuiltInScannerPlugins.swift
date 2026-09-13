@@ -37,6 +37,7 @@ public enum BuiltInScannerPlugins {
         .init(pluginID: "svag-direct", displayName: "Konami/SNK SVAG header reader", supportedExtensions: ["svag"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),
         .init(pluginID: "xa-direct", displayName: "Sony XA sector reader", supportedExtensions: ["xa"], structurePolicy: .enumerate, metadataPolicy: .direct, priority: 20),
         .init(pluginID: "vgm-direct", displayName: "VGM/VGZ header reader", supportedExtensions: ["vgm", "vgz"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),
+        .init(pluginID: "s98-direct", displayName: "S98 header, tags, and event reader", supportedExtensions: ["s98"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),
         .init(pluginID: "psgplay", displayName: "PSGPlay", supportedExtensions: ["sndh"], structurePolicy: .enumerate, metadataPolicy: .direct, priority: 10),
         .init(pluginID: "gsf-direct", displayName: "GSF PSF container reader", supportedExtensions: ["gsf", "minigsf"], structurePolicy: .dependencyEnumerate, metadataPolicy: .direct, priority: 10),
         .init(pluginID: "highly-theoretical", displayName: "Highly Theoretical", supportedExtensions: ["ssf", "minissf"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 10),
@@ -52,7 +53,7 @@ public enum BuiltInScannerPlugins {
     // These routes still need their playback/inspection implementation to
     // provide enumeration or decoder-owned timing and metadata.
     private static let decoderMetadataDescriptors: [ScannerPluginDescriptor] = [
-        .init(pluginID: "libvgm", displayName: "libVGM", supportedExtensions: ["gym", "s98"], structurePolicy: .knownSingle, metadataPolicy: .decoder, priority: 10),
+        .init(pluginID: "libvgm", displayName: "libVGM", supportedExtensions: ["gym"], structurePolicy: .knownSingle, metadataPolicy: .decoder, priority: 10),
         .init(pluginID: "mdx", displayName: "mdxmini", supportedExtensions: ["mdx"], structurePolicy: .knownSingle, metadataPolicy: .decoder, priority: 10),
         .init(pluginID: "amiga-uade", displayName: "UADE", supportedExtensions: AmigaFormatManifest.prefixes, supportsMultiTrack: true, structurePolicy: .enumerate, metadataPolicy: .decoder, priority: 20),
         .init(pluginID: "vgmstream-hd-bank", displayName: "vgmstream", supportedExtensions: ["hd", "hbd", "iecs"], structurePolicy: .dependencyEnumerate, metadataPolicy: .decoder, priority: 10),
