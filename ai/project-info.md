@@ -34,6 +34,8 @@ in-process; non-AUS payloads with the `.aus` suffix retain the vgmstream route.
 Recognized Sony MSF headers are likewise read in-process, including codec-based
 sample/loop timing and stream names; `MSF ` and other non-Sony aliases remain on
 the vgmstream route.
+Known Konami and SNK SVAG headers are also read in-process, with unrelated
+`.svag` signatures retaining the vgmstream route.
 
 ## Task Routing
 

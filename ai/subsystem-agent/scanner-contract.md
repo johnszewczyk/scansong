@@ -106,6 +106,9 @@
   It derives PCM, PSX ADPCM, ATRAC3, and MPEG sample/loop timing without audio
   decoding and preserves the CLI's loop/fade projection and invalid-loop
   cleanup. `MSF ` and other non-Sony `.msf` aliases remain on vgmstream.
+- ScanSong owns direct Konami/SNK SVAG readers for the `Svag` and `VAGm`
+  headers. Both derive PS-ADPCM sample and loop timing without decoding audio;
+  other `.svag` signatures remain on vgmstream.
 - Unknown inputs and unavailable required adapters are typed diagnostics, never
   invented playable rows or calls into a host scanner.
 - The persisted ScanSong file-type policy ignores only documented decoder-absent

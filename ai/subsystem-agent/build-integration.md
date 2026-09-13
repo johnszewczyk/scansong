@@ -48,6 +48,8 @@ executables.
 - Recognized Sony MSF files use ScanSong's in-process container/metadata reader
   and never start `vgmstream-cli`; `MSF ` and other `.msf` aliases retain the
   helper route.
+- Known Konami/SNK SVAG signatures use ScanSong's in-process metadata reader
+  and never start `vgmstream-cli`; other `.svag` aliases retain the helper route.
 
 ## Failure Boundaries
 
@@ -74,6 +76,9 @@ executables.
 - Sony MSF metadata is read by ScanSong's direct header/frame reader; vgmstream
   remains the fallback for non-Sony `.msf` aliases and scanner support for
   other formats.
+- Konami/SNK SVAG metadata is read by ScanSong's direct header reader;
+  vgmstream remains the fallback for unknown `.svag` aliases and scanner
+  support for other formats.
 - GSF/miniGSF metadata and structure are read by ScanSong's direct PSF/GSF
   parser; Highly Complete/mGBA remains a VGMBoy playback route, not a scanner
   process or runtime link.

@@ -171,6 +171,8 @@ error.
 - Sony MSF codec, stream-name, loop, and duration metadata through a
   ScanSong-owned header reader; TamaSoft's `MSF ` signature and other
   non-Sony `.msf` aliases retain the vgmstream route.
+- Konami and SNK SVAG duration and loop metadata through a ScanSong-owned
+  header reader; unrelated `.svag` signatures retain the vgmstream route.
 - Structurally known single rows for standard audio (including OGG Vorbis),
   modules, and registered formats whose optional metadata can remain empty.
 - Tracker/module rows (S3M, MOD, IT, XM, MTM, STM, and related) via

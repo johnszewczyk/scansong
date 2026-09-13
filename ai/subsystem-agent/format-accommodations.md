@@ -42,6 +42,7 @@ timing, dependency validation, and rendering remain on their existing routes.
 | `adx-direct` | CRI ADX in `.adx` | One track | ScanSong CRI ADX header reader | Preserves native sample/loop bounds and vgmstream's default two-loop/10-second-fade play window; non-CRI/Monster signatures (including Ogg and RIFF aliases) use vgmstream. |
 | `aus-direct` | Atomic Planet AUS in `.aus` | One track | ScanSong Atomic Planet AUS header reader | Preserves native sample rate/count, loop markers, and vgmstream's default play window without starting PS-ADPCM or Xbox IMA decoding; other `.aus` payloads use vgmstream. |
 | `sony-msf-direct` | Sony MSF in `.msf` | One track | ScanSong Sony MSF header and frame reader | Reads supported codec timing, native stream name, and loop bounds without audio decoding; TamaSoft `MSF ` and other non-Sony aliases use vgmstream. |
+| `svag-direct` | Konami/SNK SVAG in `.svag` | One track | ScanSong Konami/SNK SVAG header reader | Derives PS-ADPCM sample and loop timing without decoding; unknown `.svag` signatures use vgmstream. |
 | `xa-direct` | Sony CD-XA in `.xa` | One row per XA file/channel subsong | ScanSong XA sector reader | Preserves interleaved channel enumeration and sector-derived timing; RIFF/CDXA wrappers are accepted. Other `.xa` formats use vgmstream. |
 | `vgm-direct` | `.vgm`, `.vgz` | One stream row | `VGMBoyFormatDataCore` VGM/VGZ GD3 and timing | VGZ is bounded gzip decompression, not a generic archive; no decoder is started. |
 | `libvgm` | `.gym`, `.s98` | One stream row | Decoder-owned; no scanner-side metadata is invented | Remains a decoder route until a complete scanner adapter is fixture-backed. |
@@ -398,6 +399,23 @@ MPEG CBR/VBR, TamaSoft fallback, and invalid loops. Mean metadata inspection
 time was 2.566 ms/file for the direct reader versus 239.738 ms/file for the
 vgmstream CLI (including its per-file process startup).
 
+### Konami and SNK SVAG
+
+Known `.svag` variants use ScanSong's header reader: `Svag` selects the Konami
+layout with interleaved PS-ADPCM data, sample-byte loop start, and the optional
+`Svag`/`Desi` padding marker; `VAGm` selects SNK's block-count loop layout.
+Both variants preserve vgmstream's sample-rate/channel/sample limits, invalid
+loop cleanup, filename title, format comment, and default two-loop plus
+ten-second-fade play projection. No ADPCM data is decoded. Other `.svag`
+signatures retain the vgmstream fallback.
+
+The read-only live-catalog differential matched all 284 rows against both the
+saved catalog and vgmstream across eight archives; every live row used the
+Konami header. Synthetic fixtures also cover the SNK variant, both loop
+conventions, invalid loops, and the Konami padding check. Mean metadata
+inspection time was 0.128 ms/file for the direct reader versus 185.562 ms/file
+for the vgmstream CLI (including its per-file process startup).
+
 ### Raw direct streams
 
 The direct vgmstream set is owned by VGMBoy's
@@ -413,6 +431,8 @@ it from extension-only routing: recognized Sony signatures use
 `sony-msf-direct`, while other `.msf` signatures retain the vgmstream fallback.
 Likewise, `.aus` is removed from extension-only routing and uses `aus-direct`
 only for the `AUS ` header; nonmatching content retains the vgmstream fallback.
+`.svag` uses `svag-direct` only for the known `Svag` and `VAGm` signatures;
+nonmatching content retains the vgmstream fallback.
 For other direct raw-stream formats, the scanner invokes the bundled
 `vgmstream-cli -I`. It reads sample rate,
 total/play sample counts, loop bounds, source name, and decoder metadata. A
