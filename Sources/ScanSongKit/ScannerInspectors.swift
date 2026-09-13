@@ -61,6 +61,9 @@ public struct BuiltInFormatInspector: ScanFormatHandler {
         case "adx-direct":
             let metadata = try ADXMetadataReader.read(fileURL: fileURL)
             return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)])
+        case "aus-direct":
+            let metadata = try AtomicPlanetAUSMetadataReader.read(fileURL: fileURL)
+            return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)])
         case "sony-msf-direct":
             let metadata = try SonyMSFMetadataReader.read(fileURL: fileURL)
             return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)])

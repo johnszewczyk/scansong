@@ -29,6 +29,8 @@ the vgmstream helper remains for other streams and non-CRI/Monster payloads
 that reuse `.adx` (including Ogg and RIFF).
 Sony CD-XA sectors and interleaved subsongs are also read in-process; unrelated
 formats using `.xa` remain on the vgmstream route.
+Atomic Planet AUS headers now provide codec-independent timing and loop data
+in-process; non-AUS payloads with the `.aus` suffix retain the vgmstream route.
 Recognized Sony MSF headers are likewise read in-process, including codec-based
 sample/loop timing and stream names; `MSF ` and other non-Sony aliases remain on
 the vgmstream route.

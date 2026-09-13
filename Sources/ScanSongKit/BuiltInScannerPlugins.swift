@@ -11,7 +11,7 @@ public enum BuiltInScannerPlugins {
     )
 
     public static let directVGMStreamExtensions =
-        VGMStreamFormatManifest.directScannerExtensions.subtracting(["adx", "msf", "xa"])
+        VGMStreamFormatManifest.directScannerExtensions.subtracting(["adx", "aus", "msf", "xa"])
 
     public static let registry = ScannerPluginRegistry(descriptors: [
         .init(pluginID: "spc-direct", displayName: "SPC ID666/xID6 reader", supportedExtensions: ["spc"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),
@@ -25,6 +25,7 @@ public enum BuiltInScannerPlugins {
         .init(pluginID: "standard-audio", displayName: "Core Audio", supportedExtensions: ["aif", "aiff", "flac", "m4a", "mp3", "ogg", "wav"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 10),
         .init(pluginID: "ape-direct", displayName: "APE header and tag reader", supportedExtensions: ["ape"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 10),
         .init(pluginID: "adx-direct", displayName: "CRI ADX header reader", supportedExtensions: ["adx"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),
+        .init(pluginID: "aus-direct", displayName: "Atomic Planet AUS header reader", supportedExtensions: ["aus"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),
         .init(pluginID: "sony-msf-direct", displayName: "Sony MSF header reader", supportedExtensions: ["msf"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),
         .init(pluginID: "xa-direct", displayName: "Sony XA sector reader", supportedExtensions: ["xa"], structurePolicy: .enumerate, metadataPolicy: .direct, priority: 20),
         .init(pluginID: "vgm-direct", displayName: "VGM/VGZ header reader", supportedExtensions: ["vgm", "vgz"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),
@@ -38,7 +39,7 @@ public enum BuiltInScannerPlugins {
         .init(pluginID: "twosf", displayName: "2SF", supportedExtensions: ["2sf", "mini2sf"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 10),
         .init(pluginID: "vgmstream-hd-bank", displayName: "vgmstream", supportedExtensions: ["hd", "hbd", "iecs"], structurePolicy: .dependencyEnumerate, metadataPolicy: .decoder, priority: 10),
         .init(pluginID: "vgmstream-txtp", displayName: "vgmstream", supportedExtensions: ["txtp"], structurePolicy: .dependencyEnumerate, metadataPolicy: .decoder, priority: 10),
-        .init(pluginID: "vgmstream", displayName: "vgmstream", supportedExtensions: directVGMStreamExtensions.union(["adx", "msf", "xa"]), structurePolicy: .enumerate, metadataPolicy: .decoder, priority: 10),
+        .init(pluginID: "vgmstream", displayName: "vgmstream", supportedExtensions: directVGMStreamExtensions.union(["adx", "aus", "msf", "xa"]), structurePolicy: .enumerate, metadataPolicy: .decoder, priority: 10),
         .init(pluginID: "play-psf1", displayName: "Play! PSF", supportedExtensions: ["psf", "minipsf"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 10),
         .init(pluginID: "qsf-direct", displayName: "QSF PSF container reader", supportedExtensions: ["qsf"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 10),
         .init(pluginID: "qsf-mini-direct", displayName: "miniQSF PSF container reader", supportedExtensions: ["miniqsf"], structurePolicy: .dependencyEnumerate, metadataPolicy: .direct, priority: 10),

@@ -40,6 +40,7 @@ timing, dependency validation, and rendering remain on their existing routes.
 | `standard-audio` | `.aif`, `.aiff`, `.flac`, `.m4a`, `.mp3`, `.ogg`, `.wav` | One track | Core Audio duration and common tags; FLAC Vorbis comments | Exact decoded duration is preferred. |
 | `ape-direct` | `.ape` | One validated single row | ScanSong APE header and tag reader | Header-derived duration plus APEv2 and leading ID3 common tags; no decoder startup. |
 | `adx-direct` | CRI ADX in `.adx` | One track | ScanSong CRI ADX header reader | Preserves native sample/loop bounds and vgmstream's default two-loop/10-second-fade play window; non-CRI/Monster signatures (including Ogg and RIFF aliases) use vgmstream. |
+| `aus-direct` | Atomic Planet AUS in `.aus` | One track | ScanSong Atomic Planet AUS header reader | Preserves native sample rate/count, loop markers, and vgmstream's default play window without starting PS-ADPCM or Xbox IMA decoding; other `.aus` payloads use vgmstream. |
 | `sony-msf-direct` | Sony MSF in `.msf` | One track | ScanSong Sony MSF header and frame reader | Reads supported codec timing, native stream name, and loop bounds without audio decoding; TamaSoft `MSF ` and other non-Sony aliases use vgmstream. |
 | `xa-direct` | Sony CD-XA in `.xa` | One row per XA file/channel subsong | ScanSong XA sector reader | Preserves interleaved channel enumeration and sector-derived timing; RIFF/CDXA wrappers are accepted. Other `.xa` formats use vgmstream. |
 | `vgm-direct` | `.vgm`, `.vgz` | One stream row | `VGMBoyFormatDataCore` VGM/VGZ GD3 and timing | VGZ is bounded gzip decompression, not a generic archive; no decoder is started. |
@@ -363,6 +364,23 @@ live-catalog test compares all saved ADX fields against both this reader and
 payloads named `.adx` (including Ogg and RIFF aliases) remain on vgmstream, so
 extension alone does not classify content as CRI ADX.
 
+### Atomic Planet AUS
+
+Recognized `AUS ` signatures use ScanSong's in-process header reader. It reads
+the native signed sample count, rate, loop points, channel count, and both loop
+signals; codec selection (`0x02` Xbox IMA versus PS-ADPCM fallback) is not
+needed to derive metadata. No payload decoding or `vgmstream-cli` startup is
+required. Valid loops preserve the CLI's two iterations plus ten-second fade;
+invalid loop bounds are cleared using vgmstream's preparation rules. Titles
+remain the source filename without `.aus`, and the metadata source remains
+`Atomic Planet AUS header`. Non-`AUS ` files with the same extension retain
+vgmstream fallback routing.
+
+The read-only live-catalog differential matched all 440 rows against both the
+saved catalog and vgmstream in the Mega Man Anniversary Collection archive.
+Mean metadata inspection time was 0.162 ms/file for the direct reader versus
+164.076 ms/file for the vgmstream CLI (including its per-file process startup).
+
 ### Sony MSF
 
 Recognized Sony MSF signatures use ScanSong's in-process reader. It parses the
@@ -393,6 +411,8 @@ The direct vgmstream set is owned by VGMBoy's
 Although `.msf` remains in VGMBoy's upstream format manifest, ScanSong removes
 it from extension-only routing: recognized Sony signatures use
 `sony-msf-direct`, while other `.msf` signatures retain the vgmstream fallback.
+Likewise, `.aus` is removed from extension-only routing and uses `aus-direct`
+only for the `AUS ` header; nonmatching content retains the vgmstream fallback.
 For other direct raw-stream formats, the scanner invokes the bundled
 `vgmstream-cli -I`. It reads sample rate,
 total/play sample counts, loop bounds, source name, and decoder metadata. A

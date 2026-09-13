@@ -94,6 +94,10 @@
   when computing play length. `.adx` files without recognized CRI/Monster
   headers remain on vgmstream; the supported CRI ADX paths do not launch or
   link a playback decoder.
+- ScanSong owns a direct Atomic Planet AUS header reader for `AUS ` signatures.
+  It preserves the header's sample rate/count, both loop markers, invalid-loop
+  cleanup, and CLI play projection without opening PS-ADPCM or Xbox IMA payload
+  decoders. Non-AUS `.aus` aliases remain on vgmstream.
 - ScanSong owns a direct Sony CD-XA sector reader for recognized raw-sector and
   RIFF/CDXA signatures. It preserves vgmstream's XA validation, interleaved
   file/channel subsong order, labels, and sample timing without ADPCM decoding.
