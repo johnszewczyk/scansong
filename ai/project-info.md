@@ -12,16 +12,17 @@ publication. The product is the sole catalog writer consumed by CocoaSpice and S
 - `VGMBoyFormatDataCore` — dependency-free byte readers supplied by VGMBoy for
   AY, NSF/GBS/NSFE/SAP, and HES/M3U metadata that does not require a playback
   decoder.
-- `MetaManCore` — shared decoder-independent metadata reading for SID PSID/RSID,
-  SPC ID666/xID6, S98, VGM/VGZ, and PSF/PSF2/SSF/USF/2SF tag footers. ScanSong
-  maps neutral documents to schema 23.
+- `MetaManCore` — shared decoder-independent metadata reading for APE,
+  SID PSID/RSID, SPC ID666/xID6, S98, VGM/VGZ, and PSF/PSF2/SSF/USF/2SF tag
+  footers. ScanSong maps neutral documents to schema 23.
 - `scansong` — versioned JSONL command-line boundary.
 - `ScanSong` — native catalog-management interface.
 - `build-app.sh` and `launch.sh` — fresh packaging and launch boundary.
 
-APE (`.ape`) is a supported single-track direct route. ScanSong reads its
-container timing and native tags in-process; it does not link VGMBoyKit,
-invoke a decoder, or transcode the source. VGMBoy retains FFmpeg for playback.
+APE (`.ape`) is a supported single-track route. MetaMan reads its container
+timing and native tags in-process; ScanSong adapts the neutral document and
+does not link VGMBoyKit, invoke a decoder, or transcode the source. VGMBoy
+retains FFmpeg for playback.
 GSF/miniGSF and QSF/miniQSF also use ScanSong-owned, in-process readers for
 container validation, dependency chains, tags, and authored timing. They do not
 start mGBA/Highly Complete or the QSound playback core. Those cores remain in

@@ -157,11 +157,11 @@ error.
   `music.mod` remains OpenMPT. UADE's declared subsong range becomes the
   playlist rows; same-archive player/sample companions remain dependency data,
   not duplicate sources. The source bytes are retained and never converted.
-- Monkey's Audio (`.ape`) through ScanSong's direct APE header/tag reader. It
-  derives one-track duration from sample blocks and rate, reads native APEv2
-  tags, and checks the bounded frame/seek structure without starting FFmpeg or
-  audio emulation. The source bytes are retained; VGMBoy still uses FFmpeg for
-  playback.
+- Monkey's Audio (`.ape`) through MetaManCore's direct APE header/tag reader.
+  It derives one-track duration from sample blocks and rate, reads native
+  APEv2 and leading ID3v2 tags, and checks the bounded frame/seek structure
+  without starting FFmpeg or audio emulation. The source bytes are retained;
+  VGMBoy still uses FFmpeg for playback.
 - CRI ADX metadata through a ScanSong-owned header reader. It preserves
   type-03/04/05 and encrypted type-04 timing, including vgmstream's default
   loop/fade play window. Content under `.adx` that is Ogg, RIFF, or another

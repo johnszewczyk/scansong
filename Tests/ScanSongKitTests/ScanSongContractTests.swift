@@ -1160,7 +1160,7 @@ func amigaFixtureInspectsThroughUADE() async throws {
     #expect(metadata.fadeLengthMs == 0)
 }
 
-@Test func apeDirectReaderReadsLeadingID3CommonTags() throws {
+@Test func apeMetaManReaderReadsLeadingID3CommonTags() throws {
     var data = makeID3v24TextPrefix([
         ("TIT2", "ID3 song title"),
         ("TALB", "ID3 game album"),
@@ -1170,35 +1170,35 @@ func amigaFixtureInspectsThroughUADE() async throws {
     let fileURL = try writeSPCTestFile(data, name: "id3-prefixed.ape")
     defer { try? FileManager.default.removeItem(at: fileURL) }
 
-    let metadata = try APEMetadataReader.read(fileURL: fileURL)
-    #expect(metadata.song == "ID3 song title")
-    #expect(metadata.game == "ID3 game album")
-    #expect(metadata.author == "ID3 composer")
-    #expect(metadata.playLengthMs == 1_000)
+    let document = try MetaManCore.read(fileURL: fileURL)
+    #expect(document.fields.title == "ID3 song title")
+    #expect(document.fields.game == "ID3 game album")
+    #expect(document.fields.artist == "ID3 composer")
+    #expect(document.timing?.playLengthMs == 1_000)
 }
 
-@Test func apeDirectReaderSupportsTheLegacyHeaderAndFilenameFallback() throws {
+@Test func apeMetaManReaderSupportsTheLegacyHeaderAndFilenameFallback() throws {
     let fileURL = try writeSPCTestFile(makeLegacyAPEFixture(), name: "legacy-track.ape")
     defer { try? FileManager.default.removeItem(at: fileURL) }
 
-    let metadata = try APEMetadataReader.read(fileURL: fileURL)
-    #expect(metadata.song == fileURL.deletingPathExtension().lastPathComponent)
-    #expect(metadata.game.isEmpty)
-    #expect(metadata.author.isEmpty)
-    #expect(metadata.playLengthMs == 1_000)
+    let document = try MetaManCore.read(fileURL: fileURL)
+    #expect(document.fields.title == fileURL.deletingPathExtension().lastPathComponent)
+    #expect(document.fields.game == nil)
+    #expect(document.fields.artist == nil)
+    #expect(document.timing?.playLengthMs == 1_000)
 }
 
-@Test func apeDirectReaderRejectsTruncatedHeadersAndSeekTables() throws {
+@Test func apeMetaManReaderRejectsTruncatedHeadersAndSeekTables() throws {
     let valid = makeAPEFixture(tags: [:])
     let truncatedHeader = try writeSPCTestFile(Data(valid.prefix(18)), name: "truncated-header.ape")
     defer { try? FileManager.default.removeItem(at: truncatedHeader) }
-    #expect(throws: ScannerInspectionError.self) { try APEMetadataReader.read(fileURL: truncatedHeader) }
+    #expect(throws: MetadataReadError.self) { try MetaManCore.read(fileURL: truncatedHeader) }
 
     var brokenSeekTable = valid
     brokenSeekTable.replaceSubrange(64..<68, with: littleEndianBytes(UInt32(2)))
     let truncatedTable = try writeSPCTestFile(brokenSeekTable, name: "bad-seek-table.ape")
     defer { try? FileManager.default.removeItem(at: truncatedTable) }
-    #expect(throws: ScannerInspectionError.self) { try APEMetadataReader.read(fileURL: truncatedTable) }
+    #expect(throws: MetadataReadError.self) { try MetaManCore.read(fileURL: truncatedTable) }
 }
 
 @Test(

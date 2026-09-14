@@ -20,16 +20,16 @@ does not turn arbitrary decoder failures into one-track records.
 
 The fixed-byte metadata readers for AY relative-pointer tables,
 NSF/GBS/NSFE/SAP headers, and HES headers with companion M3U playlists live in
-`VGMBoyFormatDataCore`. SID PSID/RSID, SPC ID666/xID6, S98, VGM/VGZ, and
+`VGMBoyFormatDataCore`. APE, SID PSID/RSID, SPC ID666/xID6, S98, VGM/VGZ, and
 PSF/PSF2/SSF/USF/2SF metadata are read through MetaManCore.
 ScanSong supplies source files and maps neutral metadata into its catalog
 schema. These metadata routes do not require a playback decoder. Decoder-backed
 enumeration, timing, dependency validation, and rendering remain on their
 existing routes.
 
-MetaManCore owns SPC, S98, VGM/VGZ, and supported PSF-family metadata parsers
-and neutral metadata document; ScanSong owns source routing and the schema-23
-adapter. The package does not link a playback decoder.
+MetaManCore owns APE, SID, SPC, S98, VGM/VGZ, and supported PSF-family
+metadata parsers plus the neutral metadata document; ScanSong owns source
+routing and the schema-23 adapter. The package does not link a playback decoder.
 
 ## Format coverage and eventual playback target
 
@@ -51,7 +51,7 @@ independent media sources are not playback targets.
 | `psgplay` | `.sndh` | Shared SNDH header and timing reader; no PSGPlay inspection process. |
 | `mdx` | `.mdx` | VGMBoy-built `vgmboy-mdx-inspect` still supplies decoder-derived enumeration and metadata; dependencies are materialized but not published as tracks. |
 | `standard-audio` | `.aac`, `.aif`, `.aiff`, `.caf`, `.flac`, `.m4a`, `.mp3`, `.wav`, `.wave` | Core Audio supplies duration/common tags, with FLAC Vorbis comments. `.ogg` is routed through this scanner handler too. `.aac`, `.caf`, and `.wave` do not currently have ScanSong routes. |
-| `ffmpeg-audio` | `.ape`, `.mp2`, `.tak` | `.ape` uses ScanSong's direct header/tag reader. `.mp2` and `.tak` do not currently have ScanSong routes. |
+| `ffmpeg-audio` | `.ape`, `.mp2`, `.tak` | `.ape` uses MetaManCore's direct header/tag reader. `.mp2` and `.tak` do not currently have ScanSong routes. |
 | `highly-complete` | `.gsf`, `.minigsf` | ScanSong-owned PSF v0x22/container reader validates payloads and dependency chains without mGBA. |
 | `twosf` | `.2sf`, `.mini2sf` | `MetaManCore` PSF-style `[TAG]` reader; it does not start the playback core. |
 | `vgmstream` | `.aa3`, `.adp`, `.adx`, `.adpcm`, `.ads`, `.agsc`, `.ahx`, `.aifc`, `.at3`, `.aus`, `.bk2`, `.bik`, `.bika`, `.bnk`, `.dsp`, `.dvi`, `.fsb`, `.genh`, `.h4m`, `.hbd`, `.hd`, `.iecs`, `.int`, `.ldat`, `.logg`, `.mib`, `.msf`, `.mtaf`, `.ogg`, `.ps3`, `.rsf`, `.rws`, `.s14`, `.ss2`, `.stream`, `.strm`, `.svag`, `.swav`, `.thp`, `.txtp`, `.vag`, `.xa`, `.xmd`, `.xvag` | `.adx`, `.at3`, `.aus`, `.msf`, `.svag`, and `.xa` use content-aware direct readers for recognized signatures; nonmatching aliases retain vgmstream. `.txtp` and HD-bank inputs use vgmstream with dependency preparation. Other routed streams use `vgmstream-cli -I`. `.ogg` currently uses the Core Audio scanner route. |
@@ -82,7 +82,7 @@ when the current playback registry does not yet admit it.
 | `hes-direct` | `.hes` | One row per sibling-M3U entry, or 256 compatibility slots without one | `VGMBoyFormatDataCore` HES header and M3U reader | No emulator; M3U is support data and supplies the authored track map and timings. |
 | `openmpt` | `.669`, `.dmf`, `.far`, `.it`, `.mod`, `.mptm`, `.mtm`, `.okt`, `.ptm`, `.s3m`, `.stm`, `.ult`, `.xm` | One structurally-known row | Optional/deferred; metadata may be empty | No scanner-side module conversion or archive expansion. |
 | `standard-audio` | `.aif`, `.aiff`, `.flac`, `.m4a`, `.mp3`, `.ogg`, `.wav` | One track | Core Audio duration and common tags; FLAC Vorbis comments | Exact decoded duration is preferred. |
-| `ape-direct` | `.ape` | One validated single row | ScanSong APE header and tag reader | Header-derived duration plus APEv2 and leading ID3 common tags; no decoder startup. |
+| `ape-direct` | `.ape` | One validated single row | `MetaManCore` APE descriptor, seek-table, APEv2, and ID3v2 reader | Header-derived duration, ordered tags, and original tag blocks; no decoder startup. |
 | `adx-direct` | CRI ADX in `.adx` | One track | ScanSong CRI ADX header reader | Preserves native sample/loop bounds and vgmstream's default two-loop/10-second-fade play window; non-CRI/Monster signatures (including Ogg and RIFF aliases) use vgmstream. |
 | `aus-direct` | Atomic Planet AUS in `.aus` | One track | ScanSong Atomic Planet AUS header reader | Preserves native sample rate/count, loop markers, and vgmstream's default play window without starting PS-ADPCM or Xbox IMA decoding; other `.aus` payloads use vgmstream. |
 | `sony-msf-direct` | Sony MSF in `.msf` | One track | ScanSong Sony MSF header and frame reader | Reads supported codec timing, native stream name, and loop bounds without audio decoding; TamaSoft `MSF ` and other non-Sony aliases use vgmstream. |
@@ -643,14 +643,16 @@ never replaced with a fabricated one-track success.
 ### APE / Monkey's Audio
 
 `.ape` is a native lossless audio container, not an archive and not a
-multi-track module. ScanSong's direct reader validates the APE descriptor,
-stream parameters, seek-table extent, frame offsets, and payload bounds. It
-derives duration from the container's sample-block count and rate, reads APEv2
-common tags plus leading ID3v2 common tags, and falls back to the source stem
-for an absent title. It never starts FFmpeg or an audio decoder. VGMBoy keeps
-its independent `CFFmpeg` bridge for APE playback; ScanSong no longer builds
-or bundles an FFmpeg inspection helper. The original APE bytes remain the
-catalog source; no transcode is performed.
+multi-track module. `MetaManCore` validates the APE descriptor, stream
+parameters, seek-table extent, frame offsets, and payload bounds. It derives
+duration from the container's sample-block count and rate, retains ordered
+APEv2 text tags and leading ID3v2 common tags, and exposes both original tag
+blocks for unknown or binary values. An absent title falls back to the source
+stem. ScanSong only adapts the resulting `MetadataDocument` to schema 23; it
+never starts FFmpeg or an audio decoder. VGMBoy keeps its independent
+`CFFmpeg` bridge for APE playback; ScanSong no longer builds or bundles an
+FFmpeg inspection helper. The original APE bytes remain the catalog source;
+no transcode is performed.
 
 ## SID
 
