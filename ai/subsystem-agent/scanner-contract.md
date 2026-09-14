@@ -79,20 +79,21 @@
   they never write the catalog directly.
 - Dependency-free byte facts are parsed by VGMBoy's `VGMBoyFormatDataCore`:
   AY relative-pointer metadata, NSF/GBS/NSFE/SAP headers, and HES headers and
-  companion M3U playlists. `MetaManCore` parses APE, CRI/Monster ADX, SID
-  PSID/RSID, SPC ID666/xID6, S98, VGM/VGZ, and PSF/PSF2/SSF/USF/2SF tag data.
+  companion M3U playlists. `MetaManCore` parses APE, CRI/Monster ADX, Atomic
+  Planet AUS, RIFF ATRAC3/ATRAC3+, SID PSID/RSID, SPC ID666/xID6, S98, VGM/VGZ, and
+  PSF/PSF2/SSF/USF/2SF tag data.
   NSF/GBS/NSFE/HES enumeration and native metadata are complete at the
   header, chunk, or playlist boundary. SPC tagless defaults are also resolved
   in MetaManCore, so the production ScanSong targets do not link libgme;
   libgme remains a playback concern for those formats and the scanner's other
   decoder-backed families.
   ScanSong owns source I/O, scanner metadata conversion, and catalog
-  publication; `MetaManCore` owns APE, ADX, SID, SPC, S98, VGM/VGZ, and
-  PSF-family metadata parsing, including bounded VGZ decompression and named SPC
-  raw tag blocks.
+  publication; `MetaManCore` owns APE, ADX, AUS, ATRAC3, SID, SPC, S98, VGM/VGZ,
+  and PSF-family metadata parsing, including bounded VGZ decompression and
+  named SPC/RIFF raw metadata blocks.
   These routes do not link `VGMBoyKit` or start a playback decoder.
-- APE, ADX, SID, SPC, S98, VGM/VGZ, and PSF-family metadata are parsed by the
-  sibling `MetaManCore` package. It preserves ordered tags and source bytes
+- APE, ADX, AUS, ATRAC3, SID, SPC, S98, VGM/VGZ, and PSF-family metadata are
+  parsed by the sibling `MetaManCore` package. It preserves ordered tags and source bytes
   (including separately named ID666 and xID6 SPC blocks), with a ScanSong-only
   adapter to schema 23. Direct S98 timing uses the actual loop offset; libvgm
   remains only a test oracle for that route.
@@ -107,6 +108,10 @@
   invalid-loop cleanup, and the prior CLI play projection without opening
   PS-ADPCM or Xbox IMA payload decoders. Non-AUS `.aus` aliases remain on
   vgmstream.
+- `MetaManCore` owns the direct RIFF ATRAC3/ATRAC3+ reader for the WAVE codec
+  tag or extensible GUID. It preserves ordered INFO tags, source chunks, native
+  fact/loop data, and the scanner's existing timing projection. Nonmatching
+  `.at3` aliases remain on vgmstream.
 - ScanSong owns a direct Sony CD-XA sector reader for recognized raw-sector and
   RIFF/CDXA signatures. It preserves vgmstream's XA validation, interleaved
   file/channel subsong order, labels, and sample timing without ADPCM decoding.

@@ -1,69 +1,8 @@
 import Foundation
+import MetaManCore
 import SQLite3
 import Testing
 @testable import ScanSongKit
-
-@Test("ATRAC3 RIFF tags and smpl loops map to the vgmstream info window")
-func at3MetadataReaderPreservesRIFFTimingContract() throws {
-    let looped = try AT3MetadataReader.read(
-        data: makeAT3Wave(sampleCount: 200_000, sampleSkip: 1_000, loopStart: 10_000, loopEnd: 109_999),
-        displayName: "Loop Theme.at3"
-    )
-    #expect(looped == ScannerMetadata(
-        game: "",
-        song: "Loop Theme",
-        system: "",
-        author: "",
-        comment: "RIFF WAVE header (smpl looping)",
-        introLengthMs: 0,
-        loopLengthMs: 2_267,
-        playLengthMs: 14_739,
-        fadeLengthMs: 0
-    ))
-
-    let nonLooped = try AT3MetadataReader.read(
-        data: makeAT3Wave(sampleCount: 44_100),
-        displayName: "Opening.at3"
-    )
-    #expect(nonLooped.comment == "RIFF WAVE header")
-    #expect(nonLooped.loopLengthMs == 0)
-    #expect(nonLooped.playLengthMs == 1_000)
-}
-
-@Test("ATRAC3+ extensible GUID and fact skip are recognized")
-func at3MetadataReaderRecognizesATRAC3Plus() throws {
-    let metadata = try AT3MetadataReader.read(
-        data: makeAT3Wave(sampleCount: 88_200, sampleSkip: 2_000, extensible: true),
-        displayName: "Plus.at3"
-    )
-    #expect(metadata.song == "Plus")
-    #expect(metadata.comment == "RIFF WAVE header")
-    #expect(metadata.playLengthMs == 2_000)
-}
-
-@Test("RIFF wsmp loop points keep their exclusive end and decoder projection")
-func at3MetadataReaderPreservesWSMPLoopContract() throws {
-    let metadata = try AT3MetadataReader.read(
-        data: makeAT3Wave(
-            sampleCount: 200_000,
-            sampleSkip: 1_000,
-            wsmpLoopStart: 10_000,
-            wsmpLoopLength: 90_000
-        ),
-        displayName: "WSMP Theme.at3"
-    )
-    #expect(metadata == ScannerMetadata(
-        game: "",
-        song: "WSMP Theme",
-        system: "",
-        author: "",
-        comment: "RIFF WAVE header (wsmp looping)",
-        introLengthMs: 0,
-        loopLengthMs: 2_040,
-        playLengthMs: 14_308,
-        fadeLengthMs: 0
-    ))
-}
 
 @Test("AT3 content routing uses the direct reader only for ATRAC3 RIFF codecs")
 func at3RoutingSeparatesNonATRAC3RIFFAliases() throws {
@@ -81,24 +20,11 @@ func at3RoutingSeparatesNonATRAC3RIFFAliases() throws {
     #expect(BuiltInScannerPlugins.registry.route(forPath: otherCodecURL.path)?.pluginID == "vgmstream")
 }
 
-@Test("AT3 reader rejects malformed RIFF boundaries and unsupported codecs")
-func at3MetadataReaderRejectsMalformedInput() {
-    #expect(throws: ScannerInspectionError.self) {
-        try AT3MetadataReader.read(data: Data("RIFFWAVE".utf8), displayName: "short.at3")
-    }
-    #expect(throws: ScannerInspectionError.self) {
-        try AT3MetadataReader.read(
-            data: makeAT3Wave(sampleCount: 44_100, codec: 0x0001),
-            displayName: "pcm.at3"
-        )
-    }
-}
-
 @Test(
-    "AT3 direct metadata matches all saved CocoaSpice rows and vgmstream",
+    "MetaMan AT3 metadata matches all saved CocoaSpice rows and vgmstream",
     .enabled(
         if: ProcessInfo.processInfo.environment["SCANSONG_AT3_LIVE_DB"] != nil,
-        "Set SCANSONG_AT3_LIVE_DB to run read-only AT3 corpus parity. Set SCANSONG_VGMSTREAM_CLI to also compare the decoder directly."
+        "Set SCANSONG_AT3_LIVE_DB and SCANSONG_VGMSTREAM_CLI to compare MetaMan, ScanSong's adapter, the saved catalog, and vgmstream."
     )
 )
 func cocoaSpiceAT3LiveRowsMatchDirectExtraction() async throws {
@@ -123,6 +49,7 @@ func cocoaSpiceAT3LiveRowsMatchDirectExtraction() async throws {
     ))
 
     let extractor = StandaloneArchiveExtractor()
+    var exactMetaManRows = 0
     var exactSavedRows = 0
     var exactDecoderRows = 0
     var directNanoseconds: UInt64 = 0
@@ -160,8 +87,19 @@ func cocoaSpiceAT3LiveRowsMatchDirectExtraction() async throws {
             }
 
             let directStart = DispatchTime.now().uptimeNanoseconds
-            let directInspection = try await directHandler.inspect(fileURL: fileURL, route: directRoute)
+            let document = try MetaManCore.read(fileURL: fileURL)
             directNanoseconds &+= DispatchTime.now().uptimeNanoseconds &- directStart
+            let metaManMetadata = ScannerMetadata(
+                metadataDocument: document,
+                includeDateAndEncodedByInComment: false
+            )
+            if AT3LiveMetadata(metaManMetadata) == liveFile.metadata {
+                exactMetaManRows += 1
+            } else if mismatches.count < 20 {
+                mismatches.append("\(liveFile.entryPath): MetaMan differs from saved catalog")
+            }
+
+            let directInspection = try await directHandler.inspect(fileURL: fileURL, route: directRoute)
             guard let direct = directInspection.tracks.first?.metadata,
                   directInspection.tracks.count == 1,
                   directInspection.tracks[0].trackIndex == liveFile.trackIndex,
@@ -170,6 +108,9 @@ func cocoaSpiceAT3LiveRowsMatchDirectExtraction() async throws {
                     mismatches.append("\(liveFile.entryPath): direct reader structure differs from saved row")
                 }
                 continue
+            }
+            if direct != metaManMetadata, mismatches.count < 20 {
+                mismatches.append("\(liveFile.entryPath): ScanSong adapter differs from MetaMan")
             }
 
             if AT3LiveMetadata(direct) == liveFile.metadata {
@@ -182,17 +123,18 @@ func cocoaSpiceAT3LiveRowsMatchDirectExtraction() async throws {
                 let decoderStart = DispatchTime.now().uptimeNanoseconds
                 let decoded = try await decoderHandler.inspect(fileURL: fileURL, route: decoderRoute)
                 decoderNanoseconds &+= DispatchTime.now().uptimeNanoseconds &- decoderStart
-                if decoded.tracks.first?.metadata == direct, decoded.tracks.count == 1 {
+                if decoded.tracks.first?.metadata == metaManMetadata, decoded.tracks.count == 1 {
                     exactDecoderRows += 1
                 } else if mismatches.count < 20 {
-                    mismatches.append("\(liveFile.entryPath): direct metadata differs from vgmstream")
+                    mismatches.append("\(liveFile.entryPath): MetaMan differs from vgmstream")
                 }
             }
         }
         print("AT3 parity progress: archive \(archiveIndex + 1)/\(archives.count), \(liveArchive.files.count) rows")
     }
 
-    #expect(exactSavedRows == totalRows, "\(exactSavedRows)/\(totalRows) AT3 rows exactly match saved catalog metadata")
+    #expect(exactMetaManRows == totalRows, "\(exactMetaManRows)/\(totalRows) AT3 rows exactly match saved catalog metadata through MetaMan")
+    #expect(exactSavedRows == totalRows, "\(exactSavedRows)/\(totalRows) AT3 rows exactly match saved catalog metadata through the ScanSong adapter")
     if decoderEnabled {
         #expect(exactDecoderRows == totalRows, "\(exactDecoderRows)/\(totalRows) AT3 rows exactly match vgmstream")
     }
@@ -204,7 +146,7 @@ func cocoaSpiceAT3LiveRowsMatchDirectExtraction() async throws {
         : 0
     print(
         "AT3 corpus: \(totalRows) rows / \(archives.count) archives; "
-            + "catalog exact \(exactSavedRows); vgmstream exact \(exactDecoderRows); "
+            + "MetaMan/catalog adapter/vgmstream exact \(exactMetaManRows)/\(exactSavedRows)/\(exactDecoderRows); "
             + String(format: "mean direct %.3f ms", directAverageMs)
             + (decoderEnabled ? String(format: ", mean vgmstream CLI %.3f ms", decoderAverageMs) : "")
     )
