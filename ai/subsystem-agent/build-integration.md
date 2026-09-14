@@ -44,9 +44,9 @@ executables.
   `vgmstream-cli`. `.adx` content without a CRI or Monster Games signature
   remains on the vgmstream route; the helper also remains necessary for the
   other registered vgmstream formats.
-- Atomic Planet AUS metadata uses ScanSong's in-process header reader and never
-  starts `vgmstream-cli` for recognized `AUS ` content; other `.aus` aliases
-  retain the helper route.
+- Atomic Planet AUS metadata uses MetaManCore's in-process header reader and
+  never starts `vgmstream-cli` for recognized `AUS ` content; other `.aus`
+  aliases retain the helper route.
 - Sony CD-XA sector streams use ScanSong's in-process structure/timing reader
   and never start `vgmstream-cli`; other formats sharing `.xa` remain on that
   helper route.
@@ -78,9 +78,9 @@ executables.
   remains in VGMBoy for playback and is not an APE scanner requirement.
 - CRI/Monster ADX metadata is read by MetaManCore's direct header/timing reader; vgmstream
   remains a VGMBoy playback route and a scanner helper for other formats.
-- Atomic Planet AUS metadata is read by ScanSong's direct header/timing reader;
-  vgmstream remains the fallback for other `.aus` payloads and scanner support
-  for other formats.
+- Atomic Planet AUS metadata is read by MetaManCore's direct header/timing
+  reader; vgmstream remains the fallback for other `.aus` payloads and scanner
+  support for other formats.
 - Sony MSF metadata is read by ScanSong's direct header/frame reader; vgmstream
   remains the fallback for non-Sony `.msf` aliases and scanner support for
   other formats.

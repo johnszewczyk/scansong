@@ -84,7 +84,7 @@ when the current playback registry does not yet admit it.
 | `standard-audio` | `.aif`, `.aiff`, `.flac`, `.m4a`, `.mp3`, `.ogg`, `.wav` | One track | Core Audio duration and common tags; FLAC Vorbis comments | Exact decoded duration is preferred. |
 | `ape-direct` | `.ape` | One validated single row | `MetaManCore` APE descriptor, seek-table, APEv2, and ID3v2 reader | Header-derived duration, ordered tags, and original tag blocks; no decoder startup. |
 | `adx-direct` | CRI/Monster ADX in `.adx` | One track | `MetaManCore` CRI/Monster header and loop-timing reader | Preserves native sample/loop bounds and vgmstream's default two-loop/10-second-fade play window; non-ADX signatures (including Ogg and RIFF aliases) use vgmstream. |
-| `aus-direct` | Atomic Planet AUS in `.aus` | One track | ScanSong Atomic Planet AUS header reader | Preserves native sample rate/count, loop markers, and vgmstream's default play window without starting PS-ADPCM or Xbox IMA decoding; other `.aus` payloads use vgmstream. |
+| `aus-direct` | Atomic Planet AUS in `.aus` | One track | `MetaManCore` Atomic Planet AUS header reader | Preserves the exact 32-byte header, native codec/sample/channel/loop facts, and vgmstream's default play window without starting PS-ADPCM or Xbox IMA decoding; other `.aus` payloads use vgmstream. |
 | `sony-msf-direct` | Sony MSF in `.msf` | One track | ScanSong Sony MSF header and frame reader | Reads supported codec timing, native stream name, and loop bounds without audio decoding; TamaSoft `MSF ` and other non-Sony aliases use vgmstream. |
 | `svag-direct` | Konami/SNK SVAG in `.svag` | One track | ScanSong Konami/SNK SVAG header reader | Derives PS-ADPCM sample and loop timing without decoding; unknown `.svag` signatures use vgmstream. |
 | `xa-direct` | Sony CD-XA in `.xa` | One row per XA file/channel subsong | ScanSong XA sector reader | Preserves interleaved channel enumeration and sector-derived timing; RIFF/CDXA wrappers are accepted. Other `.xa` formats use vgmstream. |
@@ -98,7 +98,7 @@ when the current playback registry does not yet admit it.
 | `highly-theoretical` | `.ssf`, `.minissf` | One structurally-known row | `MetaManCore` PSF-style `[TAG]` footer reader | Metadata is available; current VGMBoy/CocoaSpice playback admission remains a gap. |
 | `lazyusf` | `.usf`, `.miniusf` | One structurally-known row | `MetaManCore` PSF-style `[TAG]` footer reader | `.usflib` is playback dependency data, never a row. |
 | `twosf` | `.2sf`, `.mini2sf` | One structurally-known row | `MetaManCore` PSF-style `[TAG]` footer reader | `.2sflib` is dependency data, never a row. |
-| `vgmstream` | Remaining raw-stream extensions listed below plus nonmatching `.adx`, `.at3`, `.aus`, `.msf`, `.svag`, and `.xa` aliases | One row per reported subsong | VGMBoy-built `vgmstream-cli` | Native `-I` inspection; subsong count is bounded. Recognized CRI/Monster ADX uses MetaManCore; recognized RIFF ATRAC3, Atomic Planet AUS, Sony MSF, Konami/SNK SVAG, and Sony XA signatures use ScanSong readers. |
+| `vgmstream` | Remaining raw-stream extensions listed below plus nonmatching `.adx`, `.at3`, `.aus`, `.msf`, `.svag`, and `.xa` aliases | One row per reported subsong | VGMBoy-built `vgmstream-cli` | Native `-I` inspection; subsong count is bounded. Recognized CRI/Monster ADX and Atomic Planet AUS use MetaManCore; recognized RIFF ATRAC3, Sony MSF, Konami/SNK SVAG, and Sony XA signatures use ScanSong readers. |
 | `vgmstream-txtp` | `.txtp` | One row per resolved subsong | `vgmstream-cli` after dependency preparation | Authored TXTP structure is authoritative. |
 | `vgmstream-hd-bank` | `.hd`, `.hbd`, `.iecs` | One row per resolved subsong | `vgmstream-cli` after dependency preparation | Bank/control sidecars are support data; IECS remains a known adapter boundary. |
 | `play-psf1` | `.psf`, `.minipsf` | One structurally-known row | `MetaManCore` PSF-style `[TAG]` footer reader | `.psflib` is playback dependency data, never a row. |
@@ -478,20 +478,23 @@ extension alone does not classify content as CRI ADX.
 
 ### Atomic Planet AUS
 
-Recognized `AUS ` signatures use ScanSong's in-process header reader. It reads
-the native signed sample count, rate, loop points, channel count, and both loop
-signals; codec selection (`0x02` Xbox IMA versus PS-ADPCM fallback) is not
-needed to derive metadata. No payload decoding or `vgmstream-cli` startup is
-required. Valid loops preserve the CLI's two iterations plus ten-second fade;
-invalid loop bounds are cleared using vgmstream's preparation rules. Titles
-remain the source filename without `.aus`, and the metadata source remains
-`Atomic Planet AUS header`. Non-`AUS ` files with the same extension retain
-vgmstream fallback routing.
+Recognized `AUS ` signatures use MetaManCore's complete in-process header
+reader. It retains all 32 header bytes and exposes codec, native signed sample
+count, rate, channels, raw and effective loop points, and both loop signals;
+codec selection (`0x02` Xbox IMA versus PS-ADPCM fallback) is not needed to
+derive metadata. No payload decoding or `vgmstream-cli` startup is required.
+Valid loops preserve the CLI's two iterations plus ten-second fade; invalid
+loop bounds are cleared using vgmstream's preparation rules while the original
+values remain available as technical facts. Titles remain the source filename
+without `.aus`, and the metadata source remains `Atomic Planet AUS header`.
+Non-`AUS ` files with the same extension retain vgmstream fallback routing.
 
-The read-only live-catalog differential matched all 440 rows against both the
-saved catalog and vgmstream in the Mega Man Anniversary Collection archive.
-Mean metadata inspection time was 0.162 ms/file for the direct reader versus
-164.076 ms/file for the vgmstream CLI (including its per-file process startup).
+The read-only live-catalog differential covers all 440 rows in the Mega Man
+Anniversary Collection archive. MetaManCore, the ScanSong schema adapter, the
+saved catalog, and vgmstream match exactly for all 440 rows. Optimized Release
+inspection averaged 0.197 ms/file through MetaMan and 171.546 ms/file through
+the vgmstream CLI, including per-file process startup. These are local
+per-file measurements, not a whole-scan guarantee.
 
 ### Sony MSF
 

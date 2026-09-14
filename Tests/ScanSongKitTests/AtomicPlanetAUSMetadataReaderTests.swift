@@ -1,54 +1,8 @@
 import Foundation
+import MetaManCore
 import SQLite3
 import Testing
 @testable import ScanSongKit
-
-@Test("Atomic Planet AUS reads header duration, loops, and play projection")
-func atomicPlanetAUSReaderMapsHeaderMetadata() throws {
-    let unlooped = try AtomicPlanetAUSMetadataReader.read(
-        data: makeAUS(codec: 0, channels: 2, sampleRate: 48_000, samples: 48_000,
-                      loopStart: 12_000, loopEnd: 36_000),
-        displayName: "01_stage.aus"
-    )
-    #expect(unlooped.song == "01_stage")
-    #expect(unlooped.comment == "Atomic Planet AUS header")
-    #expect(unlooped.loopLengthMs == 0)
-    #expect(unlooped.playLengthMs == 1_000)
-
-    let xboxIMA = try AtomicPlanetAUSMetadataReader.read(
-        data: makeAUS(codec: 2, channels: 1, sampleRate: 44_100, samples: 44_100,
-                      loopStart: 11_025, loopEnd: 33_075, loopMarker: true),
-        displayName: "looped.aus"
-    )
-    #expect(xboxIMA.loopLengthMs == 500)
-    #expect(xboxIMA.playLengthMs == 11_250)
-
-    let legacyLoopFlag = try AtomicPlanetAUSMetadataReader.read(
-        data: makeAUS(codec: 1, channels: 2, sampleRate: 32_000, samples: 32_000,
-                      loopStart: 8_000, loopEnd: 24_000, legacyLoopFlag: true),
-        displayName: "legacy-loop.aus"
-    )
-    #expect(legacyLoopFlag.loopLengthMs == 500)
-    #expect(legacyLoopFlag.playLengthMs == 11_250)
-}
-
-@Test("Atomic Planet AUS preserves vgmstream invalid-loop cleanup")
-func atomicPlanetAUSReaderClearsInvalidLoops() throws {
-    let metadata = try AtomicPlanetAUSMetadataReader.read(
-        data: makeAUS(codec: 0, channels: 2, sampleRate: 48_000, samples: 10_000,
-                      loopStart: 5_000, loopEnd: 20_000, loopMarker: true),
-        displayName: "invalid-loop.aus"
-    )
-    #expect(metadata.loopLengthMs == 0)
-    #expect(metadata.playLengthMs == 208)
-
-    #expect(throws: ScannerInspectionError.self) {
-        try AtomicPlanetAUSMetadataReader.read(
-            data: makeAUS(codec: 0, channels: 0, sampleRate: 48_000, samples: 10_000),
-            displayName: "invalid-channel.aus"
-        )
-    }
-}
 
 @Test("AUS content routing uses the direct reader only for Atomic Planet headers")
 func atomicPlanetAUSRoutingPreservesAliases() throws {
@@ -109,6 +63,7 @@ func cocoaSpiceAUSLiveRowsMatchDirectExtraction() async throws {
     ))
     let extractor = StandaloneArchiveExtractor()
     var exactCatalogRows = 0
+    var exactMetaManRows = 0
     var exactDecoderRows = 0
     var exactDirectDecoderRows = 0
     var directNanoseconds: UInt64 = 0
@@ -144,13 +99,28 @@ func cocoaSpiceAUSLiveRowsMatchDirectExtraction() async throws {
 
             let catalogRows = expectedRows.map(LiveAUSRow.init).sorted { $0.trackIndex < $1.trackIndex }
             let directStart = DispatchTime.now().uptimeNanoseconds
-            let directInspection = try await directHandler.inspect(fileURL: fileURL, route: directRoute)
+            let document = try MetaManCore.read(fileURL: fileURL)
+            let metaManRows = [LiveAUSRow(ScanTrackMetadata(
+                trackIndex: 0,
+                trackCount: 1,
+                metadata: ScannerMetadata(metadataDocument: document, includeDateAndEncodedByInComment: false)
+            ))]
             directNanoseconds &+= DispatchTime.now().uptimeNanoseconds &- directStart
+            if metaManRows == catalogRows {
+                exactMetaManRows += catalogRows.count
+            } else if mismatches.count < 20 {
+                mismatches.append("\(entryPath): MetaMan differs from saved catalog: saved=\(catalogRows), MetaMan=\(metaManRows)")
+            }
+
+            let directInspection = try await directHandler.inspect(fileURL: fileURL, route: directRoute)
             let directRows = directInspection.tracks.map(LiveAUSRow.init).sorted { $0.trackIndex < $1.trackIndex }
             if directRows == catalogRows {
                 exactCatalogRows += catalogRows.count
             } else if mismatches.count < 20 {
-                mismatches.append("\(entryPath): direct metadata differs from saved catalog: saved=\(catalogRows), direct=\(directRows)")
+                mismatches.append("\(entryPath): ScanSong adapter differs from saved catalog: saved=\(catalogRows), adapter=\(directRows)")
+            }
+            if metaManRows != directRows, mismatches.count < 20 {
+                mismatches.append("\(entryPath): ScanSong projection differs from MetaMan: MetaMan=\(metaManRows), adapter=\(directRows)")
             }
 
             let decoderStart = DispatchTime.now().uptimeNanoseconds
@@ -158,16 +128,17 @@ func cocoaSpiceAUSLiveRowsMatchDirectExtraction() async throws {
             decoderNanoseconds &+= DispatchTime.now().uptimeNanoseconds &- decoderStart
             let decoderRows = decoderInspection.tracks.map(LiveAUSRow.init).sorted { $0.trackIndex < $1.trackIndex }
             if decoderRows == catalogRows { exactDecoderRows += catalogRows.count }
-            if directRows == decoderRows {
+            if metaManRows == decoderRows {
                 exactDirectDecoderRows += catalogRows.count
             } else if mismatches.count < 20 {
-                mismatches.append("\(entryPath): direct metadata differs from vgmstream: direct=\(directRows), vgmstream=\(decoderRows)")
+                mismatches.append("\(entryPath): MetaMan differs from vgmstream: MetaMan=\(metaManRows), vgmstream=\(decoderRows)")
             }
         }
         print("AUS parity progress: archive \(archiveIndex + 1)/\(selectedArchives.count), \(archive.files.count) catalog rows")
     }
 
-    #expect(exactCatalogRows == totalRows, "\(exactCatalogRows)/\(totalRows) AUS rows exactly match saved catalog metadata")
+    #expect(exactMetaManRows == totalRows, "\(exactMetaManRows)/\(totalRows) AUS rows exactly match saved catalog metadata through MetaMan")
+    #expect(exactCatalogRows == totalRows, "\(exactCatalogRows)/\(totalRows) AUS rows exactly match saved catalog metadata through the ScanSong adapter")
     #expect(exactDecoderRows == totalRows, "\(exactDecoderRows)/\(totalRows) AUS rows exactly match vgmstream")
     #expect(exactDirectDecoderRows == totalRows, "\(exactDirectDecoderRows)/\(totalRows) AUS rows exactly match between direct and decoder")
     #expect(mismatches.isEmpty, Comment(rawValue: mismatches.joined(separator: "\n")))
@@ -177,7 +148,7 @@ func cocoaSpiceAUSLiveRowsMatchDirectExtraction() async throws {
     let decoderAverageMs = Double(decoderNanoseconds) / Double(max(1, fileCount)) / 1_000_000
     print(
         "AUS corpus: \(totalRows) rows / \(fileCount) files / \(selectedArchives.count) archives; "
-            + "exact catalog/decoder/direct \(exactCatalogRows)/\(exactDecoderRows)/\(exactDirectDecoderRows); "
+            + "exact MetaMan/catalog-adapter/decoder/MetaMan-vs-decoder \(exactMetaManRows)/\(exactCatalogRows)/\(exactDecoderRows)/\(exactDirectDecoderRows); "
             + String(format: "mean direct %.3f ms/file, vgmstream CLI %.3f ms/file", directAverageMs, decoderAverageMs)
     )
 }

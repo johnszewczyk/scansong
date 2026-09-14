@@ -88,7 +88,17 @@ public struct BuiltInFormatInspector: ScanFormatHandler {
             let metadata = try AT3MetadataReader.read(fileURL: fileURL)
             return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)])
         case "aus-direct":
-            let metadata = try AtomicPlanetAUSMetadataReader.read(fileURL: fileURL)
+            let document: MetadataDocument
+            do {
+                document = try MetaManCore.read(fileURL: fileURL)
+            } catch let error as MetadataReadError {
+                throw ScannerInspectionError.malformedFile(error.localizedDescription)
+            } catch {
+                throw ScannerInspectionError.library(
+                    "Could not read Atomic Planet AUS source \(fileURL.lastPathComponent): \(error.localizedDescription)"
+                )
+            }
+            let metadata = ScannerMetadata(metadataDocument: document, includeDateAndEncodedByInComment: false)
             return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)])
         case "sony-msf-direct":
             let metadata = try SonyMSFMetadataReader.read(fileURL: fileURL)
