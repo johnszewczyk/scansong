@@ -112,7 +112,16 @@ public struct BuiltInFormatInspector: ScanFormatHandler {
         case "openmpt":
             return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: nil)])
         case "sid":
-            let metadata = try SIDMetadataReader.read(fileURL: fileURL)
+            let document: MetadataDocument
+            do {
+                document = try MetaManCore.read(fileURL: fileURL)
+            } catch let error as MetadataReadError {
+                throw ScannerInspectionError.malformedFile(error.localizedDescription)
+            }
+            let metadata = ScannerMetadata(
+                metadataDocument: document,
+                includeDateAndEncodedByInComment: false
+            )
             return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)])
         default:
             if route.structurePolicy != .knownSingle {
@@ -224,7 +233,13 @@ public enum BuiltInFormatInspectors {
 
 private enum SPCInspector {
     static func inspect(fileURL: URL, route: ScannerRoute) throws -> ScanInspection {
-        let metadata = try SPCMetadataReader.read(fileURL: fileURL)
+        let document: MetadataDocument
+        do {
+            document = try MetaManCore.read(fileURL: fileURL)
+        } catch let error as MetadataReadError {
+            throw ScannerInspectionError.malformedFile(error.localizedDescription)
+        }
+        let metadata = ScannerMetadata(metadataDocument: document, includeDateAndEncodedByInComment: false)
         return ScanInspection(
             route: route,
             tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)]
@@ -358,19 +373,5 @@ private enum KSSInspector {
             ScanTrackMetadata(trackIndex: index, trackCount: trackCount, metadata: metadata)
         }
         return ScanInspection(route: route, tracks: tracks)
-    }
-}
-
-private enum SIDMetadataReader {
-    static func read(fileURL: URL) throws -> ScannerMetadata? {
-        do {
-            let data = try Data(contentsOf: fileURL, options: .mappedIfSafe)
-            return try SIDFormatDataReader.read(
-                data: data,
-                displayName: fileURL.lastPathComponent
-            ).map(ScannerMetadata.init(formatMetadata:))
-        } catch let error as FormatDataError {
-            throw ScannerInspectionError.malformedFile(error.message)
-        }
     }
 }

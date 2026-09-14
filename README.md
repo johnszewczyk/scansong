@@ -105,12 +105,13 @@ error.
 - Direct NSF/GBS/NSFE header and chunk enumeration, AY relative-pointer
   header/subsong/title/comment/timing extraction, SAP header/subsong/native TIME,
   and HES header/M3U inspection without opening libgme; KSS keeps its 256-slot
-  info-only fallback. The SPC route reads ID666/xID6 directly, including the
-  libgme-compatible default for valid tagless SPCs; ScanSong's app and CLI no
-  longer link or invoke libgme for SPC inspection.
-- PSF/PSF2, SSF, USF, and 2SF footer tags plus VGM/VGZ GD3/timing through
-  MetaManCore; GSF/QSF retain their specialized container readers, and SID
-  PSID/RSID headers remain a direct metadata route.
+  info-only fallback. SPC ID666/xID6 metadata is read by MetaManCore, including
+  the established libgme-compatible catalog defaults for tagless SPCs. ScanSong
+  projects the shared document into the existing schema; its app and CLI do
+  not link or invoke libgme for SPC inspection.
+- SPC ID666/xID6, PSF/PSF2, SSF, USF, and 2SF tags plus VGM/VGZ GD3/timing
+  through MetaManCore; GSF/QSF retain their specialized container readers, and
+  SID PSID/RSID headers are also read by MetaManCore.
 - Direct SNDH tag/subtune/timing harvesting through VGMBoy's shared `VGMBoySNDH`
   product. SNDH files are enumerated into their actual Atari ST subtunes; the
   scanner does not start playback just to publish metadata.

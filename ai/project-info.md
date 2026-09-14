@@ -10,10 +10,11 @@ publication. The product is the sole catalog writer consumed by CocoaSpice and S
 
 - `ScanSongKit` — host-independent scanning and catalog engine.
 - `VGMBoyFormatDataCore` — dependency-free byte readers supplied by VGMBoy for
-  metadata that does not require a playback decoder.
-- `MetaManCore` — shared decoder-independent format metadata reading for S98,
-  VGM/VGZ, and PSF/PSF2/SSF/USF/2SF tag footers. ScanSong maps neutral
-  documents to schema 23.
+  AY, NSF/GBS/NSFE/SAP, and HES/M3U metadata that does not require a playback
+  decoder.
+- `MetaManCore` — shared decoder-independent metadata reading for SID PSID/RSID,
+  SPC ID666/xID6, S98, VGM/VGZ, and PSF/PSF2/SSF/USF/2SF tag footers. ScanSong
+  maps neutral documents to schema 23.
 - `scansong` — versioned JSONL command-line boundary.
 - `ScanSong` — native catalog-management interface.
 - `build-app.sh` and `launch.sh` — fresh packaging and launch boundary.
@@ -97,11 +98,12 @@ collapsed into one ignored-format bucket:
 - Game Boy `.gbs` in the Bakukyuu Renpatsu archive is rejected by the selected
   emulator route (`Wrong file type for this emulator`). It remains a decoder
   integration gap until the correct VGMBoy/Game Boy sound route is proven.
-- SPC metadata is harvested in-process from the ID666 header and optional xID6
-  chunk. Unknown xID6 item types are skipped after bounds validation, and
-  binary/text ID666 layouts contribute native timing. Valid SPC files with no
-  recognized tags receive libgme-compatible info-only defaults; ScanSong's
-  production targets no longer link or invoke libgme for SPC inspection.
+- SPC metadata is harvested in-process by MetaManCore from text/binary ID666
+  headers and optional xID6 chunks; dump date, dumper, emulator, soundtrack, and
+  native timing facts remain available in the shared document. The ScanSong
+  projection retains the established catalog values, including the 150-second
+  default for valid tagless files. Production targets do not link or invoke
+  libgme for SPC inspection; VGMBoy keeps libgme for playback.
 - MetaManCore reads PSF-style `[TAG]` footers and authored length/fade hints
   for PSF/PSF2, SSF, USF, and 2SF without starting their playback plugins.
   GSF/miniGSF use a ScanSong-owned PSF v0x22/container reader that validates

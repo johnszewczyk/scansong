@@ -13,8 +13,8 @@ executables.
   are the source of truth for upstream revision review; ScanSong does not keep a second version list.
 - ScanSong depends on VGMBoy's lightweight `VGMBoyFormatCore` and `VGMBoySNDH` products
   for typed format admission; it does not link VGMBoyKit or native decoders.
-- ScanSong consumes the local sibling `MetaManCore` Swift package for S98,
-  VGM/VGZ, and PSF-family tag metadata. MetaManCore owns bounded VGZ gzip
+- ScanSong consumes the local sibling `MetaManCore` Swift package for SID,
+  SPC, S98, VGM/VGZ, and PSF-family metadata. MetaManCore owns bounded VGZ gzip
   expansion and has no
   VGMBoy, ScanSong, or playback-decoder dependency; test-only libvgm comparisons
   stay in ScanSong.
@@ -55,9 +55,9 @@ executables.
   helper route.
 - Known Konami/SNK SVAG signatures use ScanSong's in-process metadata reader
   and never start `vgmstream-cli`; other `.svag` aliases retain the helper route.
-- S98 header, raw/decoded tags, event timing, VGM/VGZ headers/GD3/sample timing,
-  and PSF-family `[TAG]` fields are read by MetaManCore; those routes do not
-  invoke playback cores for metadata.
+- SPC ID666/xID6 blocks, S98 header/tags/event timing, VGM/VGZ headers/GD3/sample
+  timing, and PSF-family `[TAG]` fields are read by MetaManCore; these routes do
+  not invoke playback cores for metadata. SPC playback remains in VGMBoy.
 
 ## Failure Boundaries
 

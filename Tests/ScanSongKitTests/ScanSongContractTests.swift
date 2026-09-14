@@ -1,5 +1,6 @@
 import CGameMusicEmu
 import Foundation
+import MetaManCore
 import SQLite3
 import Testing
 import VGMBoyFormatDataCore
@@ -1716,9 +1717,9 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
     header[0x0E] = 0; header[0x0F] = 1             // number of songs
     header[0x10] = 0; header[0x11] = 1             // start song
     let name = Data("Willow".utf8); header.replaceSubrange(0x16..<(0x16 + name.count), with: name)
-    let author = Data("Tester".utf8); header.replaceSubrange(0x2E..<(0x2E + author.count), with: author)
-    header[0x76] = 0; header[0x77] = 30            // PAL play length 30s
-    header[0x78] = 0; header[0x79] = 0
+    let author = Data("Tester".utf8); header.replaceSubrange(0x36..<(0x36 + author.count), with: author)
+    let released = Data("1987".utf8); header.replaceSubrange(0x56..<(0x56 + released.count), with: released)
+    header[0x76] = 0; header[0x77] = 30            // flags, not a play length
 
     let fileURL = root.appendingPathComponent("Willow.sid")
     try header.write(to: fileURL)
@@ -1730,8 +1731,10 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
     #expect(inspection.tracks.count == 1)
     #expect(metadata.system == "Commodore 64")
     #expect(metadata.song == "Willow")
+    #expect(metadata.game == "Willow")
     #expect(metadata.author == "Tester")
-    #expect(metadata.playLengthMs == 30_000)
+    #expect(metadata.comment == "1987")
+    #expect(metadata.playLengthMs == 0)
 }
 
 @Test func psfReaderHarvestsTagsAndTimingWithoutAPlaybackDecoder() async throws {
@@ -1803,7 +1806,7 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
     }
 }
 
-@Test func spcReaderParsesBinaryID666LengthAndFade() throws {
+@Test func spcScanRouteProjectsBinaryID666LengthAndFade() async throws {
     var data = makeSPCFile(id666Flag: 0x1A)
     writeBytes(&data, at: 0x2E, value: "Binary Song")
     writeBytes(&data, at: 0x4E, value: "Binary Game")
@@ -1818,9 +1821,7 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
     data[0xAE] = 0
     data[0xAF] = 0
 
-    let fileURL = try writeSPCTestFile(data, name: "binary.spc")
-    defer { try? FileManager.default.removeItem(at: fileURL) }
-    let metadata = try SPCMetadataReader.read(fileURL: fileURL)
+    let metadata = try await readSPCThroughScanSong(data, name: "binary.spc")
 
     #expect(metadata.song == "Binary Song")
     #expect(metadata.game == "Binary Game")
@@ -1829,7 +1830,7 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
     #expect(metadata.fadeLengthMs == 5_000)
 }
 
-@Test func spcReaderParsesTextID666LengthAndFade() throws {
+@Test func spcScanRouteProjectsTextID666LengthAndFade() async throws {
     var data = makeSPCFile(id666Flag: 0x1A)
     writeBytes(&data, at: 0x2E, value: "Text Song")
     writeBytes(&data, at: 0x9E, value: "01/02/2003")
@@ -1837,9 +1838,7 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
     writeBytes(&data, at: 0xAC, value: "00600")
     writeBytes(&data, at: 0xB1, value: "Text Artist")
 
-    let fileURL = try writeSPCTestFile(data, name: "text.spc")
-    defer { try? FileManager.default.removeItem(at: fileURL) }
-    let metadata = try SPCMetadataReader.read(fileURL: fileURL)
+    let metadata = try await readSPCThroughScanSong(data, name: "text.spc")
 
     #expect(metadata.song == "Text Song")
     #expect(metadata.author == "Text Artist")
@@ -1847,7 +1846,7 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
     #expect(metadata.fadeLengthMs == 600)
 }
 
-@Test func spcReaderAggregatesXID6SegmentsAndSkipsUnknownItems() throws {
+@Test func spcScanRouteProjectsXID6TimingAndSkipsUnknownItems() async throws {
     var data = makeSPCFile(id666Flag: 0x27)
     data.append(contentsOf: makeXID6Chunk(items: [
         makeXID6Item(id: 0x02, type: 1, payload: Array("xID6 Game".utf8)),
@@ -1861,9 +1860,7 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
         makeXID6Item(id: 0x35, type: 0, payload: [2, 0])
     ]))
 
-    let fileURL = try writeSPCTestFile(data, name: "xid6.spc")
-    defer { try? FileManager.default.removeItem(at: fileURL) }
-    let metadata = try SPCMetadataReader.read(fileURL: fileURL)
+    let metadata = try await readSPCThroughScanSong(data, name: "xid6.spc")
 
     #expect(metadata.song == "xID6 Song")
     #expect(metadata.game == "xID6 Game")
@@ -1935,7 +1932,10 @@ func spcFixtureDirectoryMatchesLibGMEInfoOnly() async throws {
         }
         func measureDirect() throws -> (ScannerMetadata, UInt64) {
             let started = DispatchTime.now().uptimeNanoseconds
-            let result = try SPCMetadataReader.read(fileURL: fileURL)
+            let result = ScannerMetadata(
+                metadataDocument: try MetaManCore.read(fileURL: fileURL),
+                includeDateAndEncodedByInComment: false
+            )
             return (result, DispatchTime.now().uptimeNanoseconds &- started)
         }
 
@@ -3716,6 +3716,20 @@ private func writeSPCTestFile(_ data: Data, name: String) throws -> URL {
     return url
 }
 
+private func readSPCThroughScanSong(_ data: Data, name: String) async throws -> ScannerMetadata {
+    let fileURL = try writeSPCTestFile(data, name: name)
+    defer { try? FileManager.default.removeItem(at: fileURL) }
+    guard let route = BuiltInScannerPlugins.registry.route(pathExtension: "spc"),
+          let handler = BuiltInFormatInspectors.registry.handler(for: route) else {
+        throw ScannerInspectionError.unsupportedRoute("spc")
+    }
+    let inspection = try await handler.inspect(fileURL: fileURL, route: route)
+    guard let metadata = inspection.tracks.first?.metadata else {
+        throw ScannerInspectionError.malformedFile("ScanSong SPC route returned no metadata.")
+    }
+    return metadata
+}
+
 private func writeHESHeaderText(_ data: inout Data, at offset: Int, value: String) {
     let bytes = Array(value.utf8)
     data.replaceSubrange(offset..<(offset + 0x20), with: Data(repeating: 0, count: 0x20))
@@ -4070,7 +4084,7 @@ private func writeAYRelativePointer(_ data: inout Data, at offset: Int, target: 
     data[offset + 1] = UInt8(encoded & 0xFF)
 }
 
-private func gmeInfoOnlyMetadata(fileURL: URL) -> [ScannerMetadata]? {
+func gmeInfoOnlyMetadata(fileURL: URL) -> [ScannerMetadata]? {
     var emulator: OpaquePointer?
     if gme_open_file(fileURL.path, &emulator, Int32(gme_info_only)) != nil {
         if let emulator { gme_delete(emulator) }

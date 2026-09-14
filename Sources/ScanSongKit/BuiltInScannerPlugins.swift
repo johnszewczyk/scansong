@@ -22,7 +22,7 @@ public enum BuiltInScannerPlugins {
     // `.direct` means no playback decoder process is needed; a format may
     // still expose only the facts its file structure actually contains.
     private static let directMetadataDescriptors: [ScannerPluginDescriptor] = [
-        .init(pluginID: "spc-direct", displayName: "SPC ID666/xID6 reader", supportedExtensions: ["spc"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),
+        .init(pluginID: "spc-direct", displayName: "MetaMan SPC ID666/xID6 reader", supportedExtensions: ["spc"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),
         .init(pluginID: "game-music-direct", displayName: "NSF/GBS header reader", supportedExtensions: ["gbs", "nsf"], structurePolicy: .enumerate, metadataPolicy: .direct, priority: 20),
         .init(pluginID: "nsfe-direct", displayName: "NSFE chunk reader", supportedExtensions: ["nsfe"], structurePolicy: .enumerate, metadataPolicy: .direct, priority: 20),
         .init(pluginID: "kss-direct", displayName: "KSS header reader", supportedExtensions: ["kss"], structurePolicy: .enumerate, metadataPolicy: .direct, priority: 20),

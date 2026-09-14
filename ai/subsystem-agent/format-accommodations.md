@@ -18,17 +18,17 @@ does not turn arbitrary decoder failures into one-track records.
 
 ## Dependency-free format data
 
-The fixed-byte metadata readers for AY relative-pointer tables, SPC ID666/xID6,
-NSF/GBS/NSFE/SAP headers, HES headers and companion M3U playlists, and SID
-PSID/RSID headers live in the Foundation-only `VGMBoyFormatDataCore` product.
-S98, VGM/VGZ, and PSF/PSF2/SSF/USF/2SF tags are read through MetaManCore.
+The fixed-byte metadata readers for AY relative-pointer tables,
+NSF/GBS/NSFE/SAP headers, and HES headers with companion M3U playlists live in
+`VGMBoyFormatDataCore`. SID PSID/RSID, SPC ID666/xID6, S98, VGM/VGZ, and
+PSF/PSF2/SSF/USF/2SF metadata are read through MetaManCore.
 ScanSong supplies source files and maps neutral metadata into its catalog
 schema. These metadata routes do not require a playback decoder. Decoder-backed
 enumeration, timing, dependency validation, and rendering remain on their
 existing routes.
 
-MetaManCore owns the S98, VGM/VGZ, and supported PSF-family metadata parsers and
-neutral metadata document; ScanSong owns source routing and the schema-23
+MetaManCore owns SPC, S98, VGM/VGZ, and supported PSF-family metadata parsers
+and neutral metadata document; ScanSong owns source routing and the schema-23
 adapter. The package does not link a playback decoder.
 
 ## Format coverage and eventual playback target
@@ -58,7 +58,7 @@ independent media sources are not playback targets.
 | `lazyusf` | `.usf`, `.miniusf` | `MetaManCore` PSF-style `[TAG]` reader; `.usflib` remains dependency data, not a track. |
 | `playpsf` | `.psf`, `.minipsf`, `.psf2`, `.minipsf2` | `MetaManCore` PSF-style `[TAG]` reader; libraries remain dependency data. |
 | `qsf` | `.qsf`, `.miniqsf` | ScanSong-owned PSF v0x41/QSound container reader validates payload blocks, tags, and dependencies without the QSound core. |
-| `sidplayfp` | `.sid` | Direct PSID/RSID header reader; no duration is invented when the source has none. |
+| `sidplayfp` | `.sid` | `MetaManCore` reads PSID/RSID header metadata; the playback decoder remains in VGMBoy. |
 | `openmpt` | `.669`, `.dmf`, `.far`, `.it`, `.mod`, `.mptm`, `.mtm`, `.okt`, `.ptm`, `.s3m`, `.stm`, `.ult`, `.xm` | ScanSong admits one known-structure row, but metadata remains optional/deferred; no playback decoder inspection runs. |
 | `amiga-uade` | UADE replayer prefixes such as `mod.*`, `p4x.*`, `med.*`, and TFMX | VGMBoy-built `vgmboy-amiga-inspect` still supplies subsong enumeration and metadata; complete-set dependencies are materialized first. |
 
@@ -73,7 +73,7 @@ when the current playback registry does not yet admit it.
 
 | ScanSong route | Registered extensions | Structure published | Metadata source | Dependency or archive rule |
 | --- | --- | --- | --- | --- |
-| `spc-direct` | `.spc` | One track | `VGMBoyFormatDataCore` SPC ID666/xID6 reader | All valid files are handled directly, including tagless info-only defaults; no libgme runtime link. |
+| `spc-direct` | `.spc` | One track | MetaManCore SPC ID666/xID6 reader | All valid files are handled directly, including tagless info-only defaults; no libgme runtime link. |
 | `game-music-direct` | `.gbs`, `.nsf` | One row per header-declared track | `VGMBoyFormatDataCore` NSF/GBS header reader | No emulator is started; the formats do not store authored per-track names or timing. |
 | `nsfe-direct` | `.nsfe` | One row per NSFE playlist entry | `VGMBoyFormatDataCore` NSFE chunk reader | No emulator is started; source labels/times are mapped through the optional playlist, including duplicates. |
 | `kss-direct` | `.kss` | 256 compatibility slots | ScanSong KSS header reader | Header-only; this preserves libgme's info-only fallback, not an authored song count. KSS M3U files are not consumed. |
@@ -105,7 +105,7 @@ when the current playback registry does not yet admit it.
 | `play-psf2` | `.psf2`, `.minipsf2` | One structurally-known row | `MetaManCore` PSF-style `[TAG]` footer reader | `.psflib` is playback dependency data, never a row. |
 | `qsf-direct` | `.qsf` | One validated row | ScanSong QSF PSF/data-block reader | CRC, bounded zlib output, QSound block ranges, and any referenced `.qsflib` files are validated without a QSound core. |
 | `qsf-mini-direct` | `.miniqsf` | One validated row | ScanSong QSF PSF/data-block reader | Referenced `_lib` through `_lib9` libraries must be available beside the source and pass container/block validation. |
-| `sid` | `.sid` | One structurally-known row | `VGMBoyFormatDataCore` PSID/RSID header reader | No finite duration is invented when the header has none. |
+| `sid` | `.sid` | One structurally-known row | `MetaManCore` PSID/RSID header reader | One file row; no finite duration is invented when the header has none. |
 
 The route table is deliberately not a claim that every registered source is
 playable in every frontend. VGMBoy's playback registry and the scanner's
@@ -116,27 +116,29 @@ registry are separate contracts; the [VGMBoy format registry](/Users/john/Downlo
 ### SPC: complete direct ID666/xID6 route
 
 `.spc` is registered as `spc-direct` with `knownSingle` structure.
-`SPCFormatDataReader` in `VGMBoyFormatDataCore` maps the fixed ID666 header and
-optional xID6 extension without a playback dependency. It accepts text and
-binary ID666 timing layouts, aggregates segmented xID6 values, bounds all
-lengths, and ignores unknown xID6 item types after validating their boundaries.
-Every valid SPC produces direct metadata: when neither tag format is present,
-the reader returns empty authored fields, `Super Nintendo`, unknown intro/loop
-(`-1`), the 150-second info-only play default, and zero fade. These are the
-values the old libgme fallback published for tagless SPCs.
+`MetaManCore` owns SPC metadata parsing; VGMBoy retains SPC's libgme playback
+integration. The reader handles text and binary ID666 layouts, optional xID6
+items, dump dates, dumper/emulator facts, soundtrack fields, and authored
+timing. It validates chunk/item bounds, diagnoses a malformed xID6 chunk
+without dropping valid ID666 fields, and retains the original ID666 and xID6
+regions as named raw blocks so unsupported values remain recoverable. Every
+valid SPC produces direct metadata: when neither tag format is present, the
+ScanSong projection keeps empty authored fields, `Super Nintendo`, unknown
+intro/loop (`-1`), the 150-second info-only play default, and zero fade.
 
-The reader also keeps authored xID6 intro, loop, end, and fade facts. These can
-be richer than libgme's info-only projection: upstream deliberately leaves the
-xID6 intro mapping disabled because those values are often wrong. Direct facts
-for the F-Zero fixture archives agree with the existing catalog rows; SPC
-playback remains VGMBoy's libgme responsibility. Across the two F-Zero archives
-and the tagless Super Mario World beta archive, all 57 members route directly;
-the 23 tagless records match libgme's defaults, while the other 34 retain
-additional native xID6 timing. In the Release parser-only comparison on these
-already-extracted bytes, alternating-order medians were 0.0545 ms direct and
-0.219208 ms for libgme-info-only; this fixture result excludes archive
-decompression and is not a whole-scan performance guarantee. Malformed SPCs
-remain archive-member failures.
+MetaMan keeps authored xID6 intro, loop, end, and fade facts. These can be
+richer than libgme's info-only projection: upstream leaves xID6 intro mapping
+disabled and does not consume the extended timing items. A read-only comparison
+against CocoaSpice catalog roots 1 and 8 covered all 77,326 SPC rows in 3,389
+source containers. MetaMan matched 76,664 saved rows exactly; the other 662
+row differences were field-checked and each either matched libgme or had a
+source-backed MetaMan value whose decoder difference was independently
+explained. There were zero unexplained MetaMan/libgme differences. The catalog
+was not modified. Release per-file medians/p95 were 0.055/0.071 ms (root 1)
+and 0.056/0.077 ms (root 8) for MetaMan, versus 0.038/0.052 ms and
+0.040/0.052 ms for libgme info-only. This parser-only timing excludes archive
+extraction and is not a whole-scan performance guarantee. SPC playback remains
+VGMBoy/libgme's responsibility. Malformed SPCs remain archive-member failures.
 
 ### AY: complete relative-pointer metadata route
 
@@ -652,11 +654,22 @@ catalog source; no transcode is performed.
 
 ## SID
 
-`.sid` uses the direct PSID/RSID header reader and publishes one row. The
-reader maps title, author, released information, load/init/play addresses, and
-the song count where the catalog model can represent them. SID has no reliable
-universal finite end, so missing timing remains missing; the player applies its
-bounded playback policy rather than ScanSong inventing a length.
+`.sid` metadata is read by MetaManCore; libsidplayfp remains VGMBoy's playback
+dependency. It validates the complete v1 (`0x76`-byte) or v2+ (`0x7C`-byte)
+header before reading the PSID/RSID fixed fields: title at `0x16`,
+author at `0x36`, and released text at `0x56`, preserving the raw header and
+technical identity/address/song-count facts. The source field called
+`released` is retained as copyright/release text, not misrepresented as a full
+date. ScanSong keeps its established one-row schema projection, with release
+text in the comment field.
+
+SID files do not carry a standard finite play duration. The reader therefore
+does not infer seconds from the v2 extension bytes: `0x76` begins flags and
+other technical fields, not PAL/NTSC lengths. The former direct reader treated
+those bytes as durations and used overlapping title offsets for author and
+released text; MetaMan fixes both parsing errors. The raw header remains
+available through `MetadataDocument` even where schema 23 does not retain the
+additional technical facts. See the [PSID/RSID format description](https://github.com/TheCodeTherapy/sid-player/blob/master/SIDspec.md).
 
 ## Deliberately not admitted
 
