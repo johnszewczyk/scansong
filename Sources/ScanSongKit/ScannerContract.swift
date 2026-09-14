@@ -116,8 +116,8 @@ public struct ScannerPluginRegistry: Sendable {
 
     /// Routes ordinary suffixes first, then Amiga's replayer-prefix names
     /// (`p4x.earth`, `mod.xpose-end`, etc.). ADX, AT3, AUS, MSF, SVAG, and XA are
-    /// content-aware: RIFF ATRAC3/ATRAC3+ and Sony MSF are probed by MetaManCore;
-    /// Konami/SNK SVAG and Sony XA are probed by ScanSong readers. Other
+    /// content-aware: RIFF ATRAC3/ATRAC3+, Sony MSF, and Konami/SNK SVAG are
+    /// probed by MetaManCore; Sony XA is probed by ScanSong. Other
     /// aliases retain vgmstream. These rules are not folded into the extension API.
     public func route(forPath path: String, archiveMember: Bool = false) -> ScannerRoute? {
         let fileURL = URL(fileURLWithPath: path)
@@ -134,7 +134,10 @@ public struct ScannerPluginRegistry: Sendable {
             contentRoutedPlugin = MetaManCore.canReadDirectly(fileURL: fileURL, formatHint: "msf")
                 ? "sony-msf-direct"
                 : "vgmstream"
-        case "svag": contentRoutedPlugin = Self.isDirectSVAG(at: fileURL) ? "svag-direct" : "vgmstream"
+        case "svag":
+            contentRoutedPlugin = MetaManCore.canReadDirectly(fileURL: fileURL, formatHint: "svag")
+                ? "svag-direct"
+                : "vgmstream"
         case "xa": contentRoutedPlugin = Self.isDirectXA(at: fileURL) ? "xa-direct" : "vgmstream"
         default: contentRoutedPlugin = nil
         }
@@ -210,13 +213,6 @@ public struct ScannerPluginRegistry: Sendable {
         defer { try? file.close() }
         guard let header = try? file.read(upToCount: 4), header.count == 4 else { return false }
         return header.elementsEqual(Array("AUS ".utf8))
-    }
-
-    private static func isDirectSVAG(at fileURL: URL) -> Bool {
-        guard let file = try? FileHandle(forReadingFrom: fileURL) else { return false }
-        defer { try? file.close() }
-        guard let header = try? file.read(upToCount: 4), header.count == 4 else { return false }
-        return header.elementsEqual(Array("Svag".utf8)) || header.elementsEqual(Array("VAGm".utf8))
     }
 }
 

@@ -80,19 +80,19 @@
 - Dependency-free byte facts are parsed by VGMBoy's `VGMBoyFormatDataCore`:
   AY relative-pointer metadata, NSF/GBS/NSFE/SAP headers, and HES headers and
   companion M3U playlists. `MetaManCore` parses APE, CRI/Monster ADX, Atomic
-  Planet AUS, RIFF ATRAC3/ATRAC3+, SID PSID/RSID, SPC ID666/xID6, S98, VGM/VGZ, and
-  PSF/PSF2/SSF/USF/2SF tag data.
+  Planet AUS, RIFF ATRAC3/ATRAC3+, Konami/SNK SVAG, SID PSID/RSID, SPC ID666/xID6,
+  S98, VGM/VGZ, and PSF/PSF2/SSF/USF/2SF tag data.
   NSF/GBS/NSFE/HES enumeration and native metadata are complete at the
   header, chunk, or playlist boundary. SPC tagless defaults are also resolved
   in MetaManCore, so the production ScanSong targets do not link libgme;
   libgme remains a playback concern for those formats and the scanner's other
   decoder-backed families.
   ScanSong owns source I/O, scanner metadata conversion, and catalog
-  publication; `MetaManCore` owns APE, ADX, AUS, ATRAC3, SID, SPC, S98, VGM/VGZ,
-  and PSF-family metadata parsing, including bounded VGZ decompression and
-  named SPC/RIFF raw metadata blocks.
+  publication; `MetaManCore` owns APE, ADX, AUS, ATRAC3, SVAG, SID, SPC, S98,
+  VGM/VGZ, and PSF-family metadata parsing, including bounded VGZ decompression
+  and named source metadata blocks.
   These routes do not link `VGMBoyKit` or start a playback decoder.
-- APE, ADX, AUS, ATRAC3, SID, SPC, S98, VGM/VGZ, and PSF-family metadata are
+- APE, ADX, AUS, ATRAC3, SVAG, SID, SPC, S98, VGM/VGZ, and PSF-family metadata are
   parsed by the sibling `MetaManCore` package. It preserves ordered tags and source bytes
   (including separately named ID666 and xID6 SPC blocks), with a ScanSong-only
   adapter to schema 23. Direct S98 timing uses the actual loop offset; libvgm
@@ -121,9 +121,10 @@
   and MPEG sample/loop timing without audio decoding; the adapter preserves the
   CLI's loop/fade projection and invalid-loop cleanup. `MSF ` and other
   non-Sony `.msf` aliases remain on vgmstream.
-- ScanSong owns direct Konami/SNK SVAG readers for the `Svag` and `VAGm`
-  headers. Both derive PS-ADPCM sample and loop timing without decoding audio;
-  other `.svag` signatures remain on vgmstream.
+- MetaManCore owns direct Konami/SNK SVAG readers for the `Svag` and `VAGm`
+  headers. The reader retains source header and loop facts, derives PS-ADPCM
+  timing without decoding audio, and leaves other `.svag` signatures on
+  vgmstream.
 - Unknown inputs and unavailable required adapters are typed diagnostics, never
   invented playable rows or calls into a host scanner.
 - The persisted ScanSong file-type policy ignores only documented decoder-absent

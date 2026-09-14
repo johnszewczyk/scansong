@@ -3,67 +3,7 @@ import SQLite3
 import Testing
 @testable import ScanSongKit
 
-@Test("Konami SVAG reads PS-ADPCM timing and loop projection from its header")
-func konamiSVAGReaderMapsHeaderMetadata() throws {
-    let dataSize: UInt32 = 32_000
-    let unlooped = try KonamiSNKSVAGMetadataReader.read(
-        data: makeKonamiSVAG(dataSize: dataSize, loopStartBytes: 1_600),
-        displayName: "stage.svag"
-    )
-    #expect(unlooped.song == "stage")
-    #expect(unlooped.comment == "Konami SVAG header")
-    #expect(unlooped.loopLengthMs == 0)
-    #expect(unlooped.playLengthMs == 634)
-
-    let looping = try KonamiSNKSVAGMetadataReader.read(
-        data: makeKonamiSVAG(dataSize: dataSize, loopFlag: true, loopStartBytes: 1_600),
-        displayName: "loop.svag"
-    )
-    #expect(looping.loopLengthMs == 571)
-    #expect(looping.playLengthMs == 11_206)
-}
-
-@Test("SNK SVAG reads block-based duration and loop bounds")
-func snkSVAGReaderMapsHeaderMetadata() throws {
-    let looping = try KonamiSNKSVAGMetadataReader.read(
-        data: makeSNKSVAG(channels: 2, sampleRate: 32_000, blockCount: 1_000,
-                          loopStartBlock: 100, loopEndBlock: 900),
-        displayName: "snk-loop.svag"
-    )
-    #expect(looping.comment == "SNK SVAG header")
-    #expect(looping.loopLengthMs == 700)
-    #expect(looping.playLengthMs == 11_487)
-
-    let unlooped = try KonamiSNKSVAGMetadataReader.read(
-        data: makeSNKSVAG(channels: 2, sampleRate: 32_000, blockCount: 1_000,
-                          loopStartBlock: 100, loopEndBlock: 0),
-        displayName: "snk-one-shot.svag"
-    )
-    #expect(unlooped.loopLengthMs == 0)
-    #expect(unlooped.playLengthMs == 875)
-}
-
-@Test("SVAG reader preserves invalid-loop cleanup and Konami padding checks")
-func svagReaderPreservesValidation() throws {
-    let invalidLoop = try KonamiSNKSVAGMetadataReader.read(
-        data: makeKonamiSVAG(dataSize: 32_000, loopFlag: true, loopStartBytes: 20_000),
-        displayName: "invalid-loop.svag"
-    )
-    #expect(invalidLoop.loopLengthMs == 0)
-    #expect(invalidLoop.playLengthMs == 634)
-
-    #expect(throws: ScannerInspectionError.self) {
-        try KonamiSNKSVAGMetadataReader.read(
-            data: makeKonamiSVAG(dataSize: 32_000, paddingMarker: "NOPE"),
-            displayName: "corrupt-padding.svag"
-        )
-    }
-    #expect(throws: ScannerInspectionError.self) {
-        try KonamiSNKSVAGMetadataReader.read(data: Data("OTHER".utf8), displayName: "unknown.svag")
-    }
-}
-
-@Test("SVAG routing handles both known headers and preserves unrelated aliases")
+@Test("SVAG content routing recognizes both MetaMan layouts and preserves aliases")
 func svagRoutingPreservesOtherAliases() throws {
     let registry = BuiltInScannerPlugins.registry
     #expect(registry.route(pathExtension: "svag")?.pluginID == "svag-direct")
@@ -76,8 +16,8 @@ func svagRoutingPreservesOtherAliases() throws {
     defer { try? FileManager.default.removeItem(at: directory) }
 
     for (name, data, expectedPlugin) in [
-        ("konami.svag", makeKonamiSVAG(dataSize: 32_000), "svag-direct"),
-        ("snk.svag", makeSNKSVAG(channels: 2, sampleRate: 32_000, blockCount: 1_000), "svag-direct"),
+        ("konami.svag", Data("Svag".utf8), "svag-direct"),
+        ("snk.svag", Data("VAGm".utf8), "svag-direct"),
         ("unknown.svag", Data("OTHER".utf8), "vgmstream")
     ] {
         let url = directory.appendingPathComponent(name)
@@ -91,7 +31,7 @@ func svagRoutingPreservesOtherAliases() throws {
     .enabled(
         if: ProcessInfo.processInfo.environment["SCANSONG_SVAG_LIVE_DB"] != nil
             && ProcessInfo.processInfo.environment["SCANSONG_VGMSTREAM_CLI"] != nil,
-        "Set SCANSONG_SVAG_LIVE_DB and SCANSONG_VGMSTREAM_CLI to compare the read-only catalog, direct reader, and decoder."
+        "Set SCANSONG_SVAG_LIVE_DB and SCANSONG_VGMSTREAM_CLI to compare MetaMan plus the ScanSong adapter with the read-only catalog and decoder."
     )
 )
 func cocoaSpiceSVAGLiveRowsMatchDirectExtraction() async throws {
@@ -124,8 +64,10 @@ func cocoaSpiceSVAGLiveRowsMatchDirectExtraction() async throws {
     let extractor = StandaloneArchiveExtractor()
     var exactCatalogRows = 0
     var exactDecoderRows = 0
+    var exactLegacyRows = 0
     var exactDirectDecoderRows = 0
     var directNanoseconds: UInt64 = 0
+    var legacyNanoseconds: UInt64 = 0
     var decoderNanoseconds: UInt64 = 0
     var headerCounts: [String: Int] = [:]
     var mismatches: [String] = []
@@ -165,7 +107,21 @@ func cocoaSpiceSVAGLiveRowsMatchDirectExtraction() async throws {
             if directRows == catalogRows {
                 exactCatalogRows += catalogRows.count
             } else if mismatches.count < 20 {
-                mismatches.append("\(entryPath): direct metadata differs from saved catalog: saved=\(catalogRows), direct=\(directRows)")
+                mismatches.append("\(entryPath): MetaMan projection differs from saved catalog: saved=\(catalogRows), MetaMan=\(directRows)")
+            }
+
+            let legacyStart = DispatchTime.now().uptimeNanoseconds
+            let legacyMetadata = try legacyKonamiSVAGMetadata(fileURL: fileURL)
+            legacyNanoseconds &+= DispatchTime.now().uptimeNanoseconds &- legacyStart
+            let legacyRows = [LiveSVAGRow(ScanTrackMetadata(
+                trackIndex: 0,
+                trackCount: 1,
+                metadata: legacyMetadata
+            ))]
+            if directRows == legacyRows {
+                exactLegacyRows += catalogRows.count
+            } else if mismatches.count < 20 {
+                mismatches.append("\(entryPath): MetaMan projection differs from the former in-process ScanSong reader: legacy=\(legacyRows), MetaMan=\(directRows)")
             }
 
             let decoderStart = DispatchTime.now().uptimeNanoseconds
@@ -176,7 +132,7 @@ func cocoaSpiceSVAGLiveRowsMatchDirectExtraction() async throws {
             if directRows == decoderRows {
                 exactDirectDecoderRows += catalogRows.count
             } else if mismatches.count < 20 {
-                mismatches.append("\(entryPath): direct metadata differs from vgmstream: direct=\(directRows), vgmstream=\(decoderRows)")
+                mismatches.append("\(entryPath): MetaMan projection differs from vgmstream: MetaMan=\(directRows), vgmstream=\(decoderRows)")
             }
             headerCounts[directRows.first?.metadata?.comment ?? "no row"] =
                 (headerCounts[directRows.first?.metadata?.comment ?? "no row"] ?? 0) + 1
@@ -186,17 +142,19 @@ func cocoaSpiceSVAGLiveRowsMatchDirectExtraction() async throws {
 
     #expect(exactCatalogRows == totalRows, "\(exactCatalogRows)/\(totalRows) SVAG rows exactly match saved catalog metadata")
     #expect(exactDecoderRows == totalRows, "\(exactDecoderRows)/\(totalRows) SVAG rows exactly match vgmstream")
+    #expect(exactLegacyRows == totalRows, "\(exactLegacyRows)/\(totalRows) SVAG rows exactly match the former in-process reader")
     #expect(exactDirectDecoderRows == totalRows, "\(exactDirectDecoderRows)/\(totalRows) SVAG rows exactly match between direct and decoder")
     #expect(mismatches.isEmpty, Comment(rawValue: mismatches.joined(separator: "\n")))
 
     let fileCount = selectedArchives.reduce(0) { $0 + Set($1.files.map(\.entryPath)).count }
     let directAverageMs = Double(directNanoseconds) / Double(max(1, fileCount)) / 1_000_000
+    let legacyAverageMs = Double(legacyNanoseconds) / Double(max(1, fileCount)) / 1_000_000
     let decoderAverageMs = Double(decoderNanoseconds) / Double(max(1, fileCount)) / 1_000_000
     print(
         "SVAG corpus: \(totalRows) rows / \(fileCount) files / \(selectedArchives.count) archives; "
             + "headers [\(headerCounts.sorted { $0.key < $1.key }.map { "\($0.key):\($0.value)" }.joined(separator: ", "))]; "
-            + "exact catalog/decoder/direct \(exactCatalogRows)/\(exactDecoderRows)/\(exactDirectDecoderRows); "
-            + String(format: "mean direct %.3f ms/file, vgmstream CLI %.3f ms/file", directAverageMs, decoderAverageMs)
+            + "exact catalog/decoder/legacy/MetaMan \(exactCatalogRows)/\(exactDecoderRows)/\(exactLegacyRows)/\(exactDirectDecoderRows); "
+            + String(format: "mean MetaMan+adapter %.3f ms/file, former in-process reader %.3f ms/file, vgmstream CLI %.3f ms/file", directAverageMs, legacyAverageMs, decoderAverageMs)
     )
 }
 
@@ -327,58 +285,73 @@ private func sqliteSVAGText(_ statement: OpaquePointer, _ index: Int32) -> Strin
     sqlite3_column_text(statement, index).map { String(cString: $0) } ?? ""
 }
 
-private func makeKonamiSVAG(
-    dataSize: UInt32,
-    sampleRate: UInt32 = 44_100,
-    channels: UInt16 = 2,
-    interleave: UInt32 = 0x800,
-    loopFlag: Bool = false,
-    loopStartBytes: UInt32 = 0,
-    paddingMarker: String = ""
-) -> Data {
-    var data = Data(repeating: 0, count: 0x404)
-    data.replaceSubrange(0..<4, with: Data("Svag".utf8))
-    setSVAGUInt32(dataSize, in: &data, at: 0x04)
-    setSVAGUInt32(sampleRate, in: &data, at: 0x08)
-    setSVAGUInt16(channels, in: &data, at: 0x0C)
-    setSVAGUInt32(interleave, in: &data, at: 0x10)
-    setSVAGUInt32(loopFlag ? 1 : 0, in: &data, at: 0x14)
-    setSVAGUInt32(loopStartBytes, in: &data, at: 0x18)
-    if !paddingMarker.isEmpty {
-        data.replaceSubrange(0x400..<0x404, with: Data(paddingMarker.utf8))
+/// Test-only copy of the former ScanSong in-process projection. It is kept
+/// beside the live parity oracle to measure the ownership move on identical
+/// extracted files; production has only the MetaMan implementation.
+private func legacyKonamiSVAGMetadata(fileURL: URL) throws -> ScannerMetadata {
+    let file = try FileHandle(forReadingFrom: fileURL)
+    defer { try? file.close() }
+    let data = try file.read(upToCount: 0x404) ?? Data()
+    guard data.count >= 0x20, data.prefix(4) == Data("Svag".utf8) else {
+        throw NSError(domain: "ScanSongSVAGTests", code: 5)
     }
-    return data
-}
 
-private func makeSNKSVAG(
-    channels: UInt32,
-    sampleRate: UInt32,
-    blockCount: UInt32,
-    loopStartBlock: UInt32 = 0,
-    loopEndBlock: UInt32 = 0
-) -> Data {
-    var data = Data(repeating: 0, count: 0x20)
-    data.replaceSubrange(0..<4, with: Data("VAGm".utf8))
-    setSVAGUInt32(sampleRate, in: &data, at: 0x08)
-    setSVAGUInt32(channels, in: &data, at: 0x0C)
-    setSVAGUInt32(blockCount, in: &data, at: 0x10)
-    setSVAGUInt32(loopStartBlock, in: &data, at: 0x18)
-    setSVAGUInt32(loopEndBlock, in: &data, at: 0x1C)
-    return data
-}
+    let dataSize = UInt64(legacySVAGUInt32(data, 0x04))
+    let sampleRate = Int64(legacySVAGUInt32(data, 0x08))
+    let channels = Int64(legacySVAGUInt16(data, 0x0C))
+    let loopFlag = legacySVAGUInt32(data, 0x14) == 1
+    guard channels > 0, channels <= 64, (300...192_000).contains(sampleRate) else {
+        throw NSError(domain: "ScanSongSVAGTests", code: 6)
+    }
+    let sampleCount = Int64(dataSize / UInt64(channels) / 0x10 * 28)
+    guard sampleCount > 0, sampleCount <= 1_000_000_000 else {
+        throw NSError(domain: "ScanSongSVAGTests", code: 7)
+    }
 
-private func setSVAGUInt16(_ value: UInt16, in data: inout Data, at offset: Int) {
-    data.replaceSubrange(offset..<(offset + 2), with: [UInt8(value & 0xFF), UInt8(value >> 8)])
-}
-
-private func setSVAGUInt32(_ value: UInt32, in data: inout Data, at offset: Int) {
-    data.replaceSubrange(
-        offset..<(offset + 4),
-        with: [
-            UInt8(value & 0xFF),
-            UInt8((value >> 8) & 0xFF),
-            UInt8((value >> 16) & 0xFF),
-            UInt8(value >> 24)
-        ]
+    let marker = data.count >= 0x404 ? legacySVAGUInt32BE(data, 0x400) : 0
+    guard channels <= 1 || marker == 0 || marker == 0x5376_6167 || marker == 0x4465_7369 else {
+        throw NSError(domain: "ScanSongSVAGTests", code: 8)
+    }
+    var loopStart = loopFlag ? Int64(legacySVAGUInt32(data, 0x18)) / 0x10 * 28 : 0
+    var loopEnd = loopFlag ? sampleCount : 0
+    if loopFlag && (loopStart < 0 || loopEnd <= loopStart || loopEnd > sampleCount) {
+        loopStart = 0
+        loopEnd = 0
+    }
+    let loopLength = loopEnd > loopStart ? loopEnd - loopStart : 0
+    let playSamples = loopLength > 0
+        ? loopStart + loopLength * 2 + sampleRate * 10
+        : sampleCount
+    let title = URL(fileURLWithPath: fileURL.lastPathComponent)
+        .deletingPathExtension()
+        .lastPathComponent
+    return ScannerMetadata(
+        game: "",
+        song: title,
+        system: "",
+        author: "",
+        comment: "Konami SVAG header",
+        introLengthMs: 0,
+        loopLengthMs: Int(loopLength * 1_000 / sampleRate),
+        playLengthMs: Int(playSamples * 1_000 / sampleRate),
+        fadeLengthMs: 0
     )
+}
+
+private func legacySVAGUInt16(_ data: Data, _ offset: Int) -> UInt16 {
+    UInt16(data[offset]) | UInt16(data[offset + 1]) << 8
+}
+
+private func legacySVAGUInt32(_ data: Data, _ offset: Int) -> UInt32 {
+    UInt32(data[offset])
+        | UInt32(data[offset + 1]) << 8
+        | UInt32(data[offset + 2]) << 16
+        | UInt32(data[offset + 3]) << 24
+}
+
+private func legacySVAGUInt32BE(_ data: Data, _ offset: Int) -> UInt32 {
+    UInt32(data[offset]) << 24
+        | UInt32(data[offset + 1]) << 16
+        | UInt32(data[offset + 2]) << 8
+        | UInt32(data[offset + 3])
 }

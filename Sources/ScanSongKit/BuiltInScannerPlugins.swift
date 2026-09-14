@@ -35,7 +35,7 @@ public enum BuiltInScannerPlugins {
         .init(pluginID: "at3-direct", displayName: "RIFF ATRAC3 header reader", supportedExtensions: ["at3"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),
         .init(pluginID: "aus-direct", displayName: "Atomic Planet AUS header reader", supportedExtensions: ["aus"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),
         .init(pluginID: "sony-msf-direct", displayName: "MetaMan Sony MSF reader", supportedExtensions: ["msf"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),
-        .init(pluginID: "svag-direct", displayName: "Konami/SNK SVAG header reader", supportedExtensions: ["svag"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),
+        .init(pluginID: "svag-direct", displayName: "MetaMan Konami/SNK SVAG reader", supportedExtensions: ["svag"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),
         .init(pluginID: "xa-direct", displayName: "Sony XA sector reader", supportedExtensions: ["xa"], structurePolicy: .enumerate, metadataPolicy: .direct, priority: 20),
         .init(pluginID: "vgm-direct", displayName: "VGM/VGZ header reader", supportedExtensions: ["vgm", "vgz"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),
         .init(pluginID: "s98-direct", displayName: "S98 header, tags, and event reader", supportedExtensions: ["s98"], structurePolicy: .knownSingle, metadataPolicy: .direct, priority: 20),

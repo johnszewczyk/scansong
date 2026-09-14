@@ -14,7 +14,8 @@ executables.
 - ScanSong depends on VGMBoy's lightweight `VGMBoyFormatCore` and `VGMBoySNDH` products
   for typed format admission; it does not link VGMBoyKit or native decoders.
 - ScanSong consumes the local sibling `MetaManCore` Swift package for APE, ADX,
-  AUS, ATRAC3, Sony MSF, SID, SPC, S98, VGM/VGZ, and PSF-family metadata.
+  AUS, ATRAC3, Sony MSF, Konami/SNK SVAG, SID, SPC, S98, VGM/VGZ, and
+  PSF-family metadata.
   MetaManCore owns bounded VGZ gzip expansion and has no
   VGMBoy, ScanSong, or playback-decoder dependency; test-only libvgm comparisons
   stay in ScanSong.
@@ -53,7 +54,7 @@ executables.
 - Recognized Sony MSF files use MetaManCore's in-process container/metadata
   reader and never start `vgmstream-cli`; `MSF ` and other `.msf` aliases retain
   the helper route.
-- Known Konami/SNK SVAG signatures use ScanSong's in-process metadata reader
+- Known Konami/SNK SVAG signatures use MetaManCore's in-process metadata reader
   and never start `vgmstream-cli`; other `.svag` aliases retain the helper route.
 - SPC ID666/xID6 blocks, S98 header/tags/event timing, VGM/VGZ headers/GD3/sample
   timing, and PSF-family `[TAG]` fields are read by MetaManCore; these routes do
@@ -84,7 +85,7 @@ executables.
 - Sony MSF metadata is read by MetaManCore's direct header/frame reader;
   vgmstream remains the fallback for non-Sony `.msf` aliases and scanner
   support for other formats.
-- Konami/SNK SVAG metadata is read by ScanSong's direct header reader;
+- Konami/SNK SVAG metadata is read by MetaManCore's direct header reader;
   vgmstream remains the fallback for unknown `.svag` aliases and scanner
   support for other formats.
 - GSF/miniGSF metadata and structure are read by ScanSong's direct PSF/GSF

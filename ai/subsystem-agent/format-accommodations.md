@@ -22,15 +22,16 @@ The fixed-byte metadata readers for AY relative-pointer tables,
 NSF/GBS/NSFE/SAP headers, and HES headers with companion M3U playlists live in
 `VGMBoyFormatDataCore`. APE, CRI/Monster ADX, RIFF ATRAC3/ATRAC3+, Sony MSF,
 SID PSID/RSID, SPC ID666/xID6, S98, VGM/VGZ, and PSF/PSF2/SSF/USF/2SF metadata
-are read through MetaManCore.
+are read through MetaManCore, which also owns the Konami/SNK SVAG header reader.
 ScanSong supplies source files and maps neutral metadata into its catalog
 schema. These metadata routes do not require a playback decoder. Decoder-backed
 enumeration, timing, dependency validation, and rendering remain on their
 existing routes.
 
-MetaManCore owns APE, ADX, ATRAC3, Sony MSF, SID, SPC, S98, VGM/VGZ, and supported
-PSF-family metadata parsers plus the neutral metadata document; ScanSong owns source
-routing and the schema-23 adapter. The package does not link a playback decoder.
+MetaManCore owns APE, ADX, ATRAC3, Sony MSF, SVAG, SID, SPC, S98, VGM/VGZ, and
+supported PSF-family metadata parsers plus the neutral metadata document;
+ScanSong owns source routing and the schema-23 adapter. The package does not
+link a playback decoder.
 
 ## Format coverage and eventual playback target
 
@@ -55,7 +56,7 @@ independent media sources are not playback targets.
 | `ffmpeg-audio` | `.ape`, `.mp2`, `.tak` | `.ape` uses MetaManCore's direct header/tag reader. `.mp2` and `.tak` do not currently have ScanSong routes. |
 | `highly-complete` | `.gsf`, `.minigsf` | ScanSong-owned PSF v0x22/container reader validates payloads and dependency chains without mGBA. |
 | `twosf` | `.2sf`, `.mini2sf` | `MetaManCore` PSF-style `[TAG]` reader; it does not start the playback core. |
-| `vgmstream` | `.aa3`, `.adp`, `.adx`, `.adpcm`, `.ads`, `.agsc`, `.ahx`, `.aifc`, `.at3`, `.aus`, `.bk2`, `.bik`, `.bika`, `.bnk`, `.dsp`, `.dvi`, `.fsb`, `.genh`, `.h4m`, `.hbd`, `.hd`, `.iecs`, `.int`, `.ldat`, `.logg`, `.mib`, `.msf`, `.mtaf`, `.ogg`, `.ps3`, `.rsf`, `.rws`, `.s14`, `.ss2`, `.stream`, `.strm`, `.svag`, `.swav`, `.thp`, `.txtp`, `.vag`, `.xa`, `.xmd`, `.xvag` | `.adx`, `.at3`, `.aus`, `.msf`, `.svag`, and `.xa` use content-aware direct readers for recognized signatures; nonmatching aliases retain vgmstream. `.txtp` and HD-bank inputs use vgmstream with dependency preparation. Other routed streams use `vgmstream-cli -I`. `.ogg` currently uses the Core Audio scanner route. |
+| `vgmstream` | `.aa3`, `.adp`, `.adx`, `.adpcm`, `.ads`, `.agsc`, `.ahx`, `.aifc`, `.at3`, `.aus`, `.bk2`, `.bik`, `.bika`, `.bnk`, `.dsp`, `.dvi`, `.fsb`, `.genh`, `.h4m`, `.hbd`, `.hd`, `.iecs`, `.int`, `.ldat`, `.logg`, `.mib`, `.msf`, `.mtaf`, `.ogg`, `.ps3`, `.rsf`, `.rws`, `.s14`, `.ss2`, `.stream`, `.strm`, `.svag`, `.swav`, `.thp`, `.txtp`, `.vag`, `.xa`, `.xmd`, `.xvag` | `.adx`, `.at3`, `.aus`, `.msf`, and `.svag` use MetaManCore's content-aware readers, while `.xa` uses ScanSong's direct reader; nonmatching aliases retain vgmstream. `.txtp` and HD-bank inputs use vgmstream with dependency preparation. Other routed streams use `vgmstream-cli -I`. `.ogg` currently uses the Core Audio scanner route. |
 | `lazyusf` | `.usf`, `.miniusf` | `MetaManCore` PSF-style `[TAG]` reader; `.usflib` remains dependency data, not a track. |
 | `playpsf` | `.psf`, `.minipsf`, `.psf2`, `.minipsf2` | `MetaManCore` PSF-style `[TAG]` reader; libraries remain dependency data. |
 | `qsf` | `.qsf`, `.miniqsf` | ScanSong-owned PSF v0x41/QSound container reader validates payload blocks, tags, and dependencies without the QSound core. |
@@ -88,7 +89,7 @@ when the current playback registry does not yet admit it.
 | `aus-direct` | Atomic Planet AUS in `.aus` | One track | `MetaManCore` Atomic Planet AUS header reader | Preserves the exact 32-byte header, native codec/sample/channel/loop facts, and vgmstream's default play window without starting PS-ADPCM or Xbox IMA decoding; other `.aus` payloads use vgmstream. |
 | `at3-direct` | RIFF/WAVE ATRAC3/ATRAC3+ in `.at3` | One track | `MetaManCore` RIFF chunk, INFO-tag, and loop reader | Preserves ordered `LIST/INFO` tags and non-audio chunks, plus native codec/fact/loop facts and the prior play projection; unrelated aliases use vgmstream. |
 | `sony-msf-direct` | Sony MSF in `.msf` | One track | `MetaManCore` Sony MSF header and frame reader | Retains the source header and derives supported codec timing without audio decoding; TamaSoft `MSF ` and other non-Sony aliases use vgmstream. |
-| `svag-direct` | Konami/SNK SVAG in `.svag` | One track | ScanSong Konami/SNK SVAG header reader | Derives PS-ADPCM sample and loop timing without decoding; unknown `.svag` signatures use vgmstream. |
+| `svag-direct` | Konami/SNK SVAG in `.svag` | One track | MetaManCore Konami/SNK SVAG header reader | Retains header and native PS-ADPCM sample/loop facts; unknown `.svag` signatures use vgmstream. |
 | `xa-direct` | Sony CD-XA in `.xa` | One row per XA file/channel subsong | ScanSong XA sector reader | Preserves interleaved channel enumeration and sector-derived timing; RIFF/CDXA wrappers are accepted. Other `.xa` formats use vgmstream. |
 | `vgm-direct` | `.vgm`, `.vgz` | One stream row | `MetaManCore` VGM/VGZ header, GD3, and sample timing | VGZ is bounded gzip decompression, not a generic archive; no decoder is started. |
 | `s98-direct` | `.s98` | One stream row | `MetaManCore` S98 v0-v3 parser plus ScanSong schema adapter | No playback core is started; full `DATE` and actual intro-to-loop timing intentionally improve on libvgm's projection. |
@@ -100,7 +101,7 @@ when the current playback registry does not yet admit it.
 | `highly-theoretical` | `.ssf`, `.minissf` | One structurally-known row | `MetaManCore` PSF-style `[TAG]` footer reader | Metadata is available; current VGMBoy/CocoaSpice playback admission remains a gap. |
 | `lazyusf` | `.usf`, `.miniusf` | One structurally-known row | `MetaManCore` PSF-style `[TAG]` footer reader | `.usflib` is playback dependency data, never a row. |
 | `twosf` | `.2sf`, `.mini2sf` | One structurally-known row | `MetaManCore` PSF-style `[TAG]` footer reader | `.2sflib` is dependency data, never a row. |
-| `vgmstream` | Remaining raw-stream extensions listed below plus nonmatching `.adx`, `.at3`, `.aus`, `.msf`, `.svag`, and `.xa` aliases | One row per reported subsong | VGMBoy-built `vgmstream-cli` | Native `-I` inspection; subsong count is bounded. Recognized CRI/Monster ADX, RIFF ATRAC3, Atomic Planet AUS, and Sony MSF use MetaManCore; Konami/SNK SVAG and Sony XA use ScanSong readers. |
+| `vgmstream` | Remaining raw-stream extensions listed below plus nonmatching `.adx`, `.at3`, `.aus`, `.msf`, `.svag`, and `.xa` aliases | One row per reported subsong | VGMBoy-built `vgmstream-cli` | Native `-I` inspection; subsong count is bounded. Recognized CRI/Monster ADX, RIFF ATRAC3, Atomic Planet AUS, Sony MSF, and Konami/SNK SVAG use MetaManCore; Sony XA uses the ScanSong reader. |
 | `vgmstream-txtp` | `.txtp` | One row per resolved subsong | `vgmstream-cli` after dependency preparation | Authored TXTP structure is authoritative. |
 | `vgmstream-hd-bank` | `.hd`, `.hbd`, `.iecs` | One row per resolved subsong | `vgmstream-cli` after dependency preparation | Bank/control sidecars are support data; IECS remains a known adapter boundary. |
 | `play-psf1` | `.psf`, `.minipsf` | One structurally-known row | `MetaManCore` PSF-style `[TAG]` footer reader | `.psflib` is playback dependency data, never a row. |
@@ -521,20 +522,28 @@ whole-scan guarantee.
 
 ### Konami and SNK SVAG
 
-Known `.svag` variants use ScanSong's header reader: `Svag` selects the Konami
-layout with interleaved PS-ADPCM data, sample-byte loop start, and the optional
-`Svag`/`Desi` padding marker; `VAGm` selects SNK's block-count loop layout.
-Both variants preserve vgmstream's sample-rate/channel/sample limits, invalid
-loop cleanup, filename title, format comment, and default two-loop plus
-ten-second-fade play projection. No ADPCM data is decoded. Other `.svag`
-signatures retain the vgmstream fallback.
+Known `.svag` variants use MetaManCore's complete direct header reader: `Svag`
+selects the Konami layout with interleaved PS-ADPCM data, sample-byte loop
+start, and optional `Svag`/`Desi` padding marker; `VAGm` selects SNK's
+block-count loop layout. The neutral document retains the structural header
+bytes and raw/effective channel, rate, sample, interleave, block, and loop facts.
+Invalid loop bounds remain visible as raw facts and diagnostics but are omitted
+from timing. The ScanSong adapter preserves the filename title, format comment,
+and default two-loop plus ten-second-fade play projection. No ADPCM data is
+decoded. Other `.svag` signatures retain the vgmstream fallback; playback stays
+with VGMBoy.
 
-The read-only live-catalog differential matched all 284 rows against both the
-saved catalog and vgmstream across eight archives; every live row used the
-Konami header. Synthetic fixtures also cover the SNK variant, both loop
-conventions, invalid loops, and the Konami padding check. Mean metadata
-inspection time was 0.128 ms/file for the direct reader versus 185.562 ms/file
-for the vgmstream CLI (including its per-file process startup).
+The read-only live-catalog differential covers all 284 rows across eight
+archives; every live row uses the Konami header. MetaMan plus the ScanSong
+adapter, saved catalog, and vgmstream match all rows exactly. Focused MetaMan
+fixtures cover the SNK variant, both loop conventions, invalid-loop diagnostics,
+both accepted Konami padding markers, malformed headers, and alias probing.
+The same-run Release comparison averaged 0.155 ms/file through MetaMan plus
+the adapter, 0.056 ms/file through the former in-process reader, and 236.895
+ms/file through the vgmstream CLI. The richer neutral document adds about
+0.099 ms/file over the former parser while retaining raw header facts; the CLI
+figure includes per-file process startup. These local per-file measurements
+are not a whole-scan guarantee.
 
 ### RIFF ATRAC3/ATRAC3+: complete MetaMan reader
 
@@ -570,9 +579,9 @@ The vgmstream extension set is owned by VGMBoy's
 
 Although `.adx`, `.at3`, `.aus`, `.msf`, `.svag`, and `.xa` remain in VGMBoy's
 upstream manifest, ScanSong removes them from generic extension-only routing.
-Recognized CRI/Monster ADX, RIFF ATRAC3, and Atomic Planet AUS signatures use
-MetaManCore readers; Sony MSF, Konami/SNK SVAG, and Sony XA signatures use
-ScanSong readers. Other aliases retain the vgmstream fallback. For the
+Recognized CRI/Monster ADX, RIFF ATRAC3, Atomic Planet AUS, Sony MSF, and
+Konami/SNK SVAG signatures use MetaManCore readers; Sony XA uses a ScanSong
+reader. Other aliases retain the vgmstream fallback. For the
 remaining raw-stream formats, the scanner invokes the bundled
 `vgmstream-cli -I`. It reads sample rate,
 total/play sample counts, loop bounds, source name, and decoder metadata. A
