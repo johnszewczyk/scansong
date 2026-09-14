@@ -168,11 +168,11 @@ error.
   non-CRI/Monster alias retains the vgmstream route.
 - Sony CD-XA sector and interleaved subsong metadata through a ScanSong-owned
   reader; other formats that reuse `.xa` retain the vgmstream route.
-- Atomic Planet AUS header timing and loop metadata through a ScanSong-owned
+- Atomic Planet AUS header timing and loop metadata through MetaManCore;
   reader; other content under `.aus` remains eligible for the vgmstream route.
-- Sony MSF codec, stream-name, loop, and duration metadata through a
-  ScanSong-owned header reader; TamaSoft's `MSF ` signature and other
-  non-Sony `.msf` aliases retain the vgmstream route.
+- Sony MSF codec, stream-name, loop, and duration metadata through MetaManCore;
+  TamaSoft's `MSF ` signature and other non-Sony `.msf` aliases retain the
+  vgmstream route.
 - Konami and SNK SVAG duration and loop metadata through a ScanSong-owned
   header reader; unrelated `.svag` signatures retain the vgmstream route.
 - Structurally known single rows for standard audio (including OGG Vorbis),

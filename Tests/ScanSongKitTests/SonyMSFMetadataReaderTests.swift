@@ -3,98 +3,6 @@ import SQLite3
 import Testing
 @testable import ScanSongKit
 
-@Test("Sony MSF reader preserves PCM, PSX ADPCM, names, and header timing")
-func sonyMSFReaderMapsIntegerCodecs() throws {
-    let pcm = try SonyMSFMetadataReader.read(
-        data: makeSonyMSF(codec: 0, sampleRate: 48_000, payload: Data(repeating: 0x5A, count: 384), streamName: "Embedded title"),
-        displayName: "fallback.msf"
-    )
-    #expect(pcm.song == "Embedded title")
-    #expect(pcm.comment == "Sony MSF header")
-    #expect(pcm.playLengthMs == 2)
-
-    let littleEndianPCM = try SonyMSFMetadataReader.read(
-        data: makeSonyMSF(codec: 1, sampleRate: 48_000, payload: Data(repeating: 0xA5, count: 384)),
-        displayName: "fallback.msf"
-    )
-    #expect(littleEndianPCM.song == "fallback")
-    #expect(littleEndianPCM.playLengthMs == 2)
-
-    let psx = try SonyMSFMetadataReader.read(
-        data: makeSonyMSF(codec: 3, sampleRate: 44_100, payload: Data(repeating: 0, count: 64)),
-        displayName: "psx.msf"
-    )
-    #expect(psx.playLengthMs == 1)
-}
-
-@Test("Sony MSF ATRAC3 variants preserve delay, loops, and CLI play window")
-func sonyMSFReaderMapsATRAC3Timing() throws {
-    for (codec, frameSize) in [(UInt32(4), 0x60), (5, 0x98), (6, 0xC0)] {
-        let payload = Data(repeating: 0, count: frameSize * 2 * 2)
-        let metadata = try SonyMSFMetadataReader.read(
-            data: makeSonyMSF(codec: codec, sampleRate: -1, payload: payload),
-            displayName: "atrac.msf"
-        )
-        #expect(metadata.playLengthMs == 20, "codec \(codec)")
-    }
-
-    let frameSize = 0x98 * 2
-    let looping = try SonyMSFMetadataReader.read(
-        data: makeSonyMSF(
-            codec: 5,
-            sampleRate: 44_100,
-            payload: Data(repeating: 0, count: frameSize * 5),
-            flags: 0x01,
-            loopStart: UInt32(frameSize * 2),
-            loopDuration: UInt32(frameSize * 2)
-        ),
-        displayName: "looping.msf"
-    )
-    #expect(looping.loopLengthMs == 46)
-    #expect(looping.playLengthMs == 10_112)
-
-    let ignoredBadLoop = try SonyMSFMetadataReader.read(
-        data: makeSonyMSF(
-            codec: 5,
-            sampleRate: 44_100,
-            payload: Data(repeating: 0, count: frameSize * 4),
-            flags: 0x01,
-            loopStart: UInt32(frameSize * 2),
-            loopDuration: UInt32(frameSize * 4)
-        ),
-        displayName: "out-of-range-loop.msf"
-    )
-    #expect(ignoredBadLoop.loopLengthMs == 0)
-    #expect(ignoredBadLoop.playLengthMs == 66)
-}
-
-@Test("Sony MSF MPEG CBR and VBR frame counting preserves loop projection")
-func sonyMSFReaderCountsMPEGFrames() throws {
-    let cbrPayload = makeMPEGFrame(header: 0xFFFB_9000, size: 417)
-        + makeMPEGFrame(header: 0xFFFB_9000, size: 417)
-    let cbr = try SonyMSFMetadataReader.read(
-        data: makeSonyMSF(codec: 7, sampleRate: 44_100, payload: cbrPayload, flags: 0x40),
-        displayName: "constant-rate.msf"
-    )
-    #expect(cbr.playLengthMs == 52)
-
-    let vbrPayload = makeMPEGFrame(header: 0xFFFB_9000, size: 417)
-        + makeMPEGFrame(header: 0xFFFB_B000, size: 626)
-    let vbr = try SonyMSFMetadataReader.read(
-        data: makeSonyMSF(
-            codec: 7,
-            sampleRate: 44_100,
-            payload: vbrPayload,
-            flags: 0x21,
-            loopStart: 0,
-            loopDuration: UInt32(vbrPayload.count)
-        ),
-        displayName: "variable-rate.msf"
-    )
-    #expect(vbr.loopLengthMs == 52)
-    #expect(vbr.playLengthMs == 10_104)
-}
-
 @Test("Sony MSF content routing preserves non-Sony MSF aliases")
 func sonyMSFRoutingKeepsTamaSoftOnVGMStream() throws {
     let registry = BuiltInScannerPlugins.registry
@@ -116,13 +24,6 @@ func sonyMSFRoutingKeepsTamaSoftOnVGMStream() throws {
         let url = directory.appendingPathComponent(name)
         try Data(signature + [UInt8](repeating: 0, count: 0x3C)).write(to: url)
         #expect(registry.route(forPath: url.path)?.pluginID == expectedPlugin, Comment(rawValue: name))
-    }
-
-    #expect(throws: ScannerInspectionError.self) {
-        try SonyMSFMetadataReader.read(
-            data: makeSonyMSF(codec: 2, sampleRate: 48_000, payload: Data(repeating: 0, count: 32)),
-            displayName: "unsupported.msf"
-        )
     }
 }
 
@@ -373,52 +274,4 @@ private func msfCodec(_ fileURL: URL) -> UInt32? {
     defer { try? handle.close() }
     guard let data = try? handle.read(upToCount: 8), data.count == 8 else { return nil }
     return UInt32(data[4]) << 24 | UInt32(data[5]) << 16 | UInt32(data[6]) << 8 | UInt32(data[7])
-}
-
-private func makeSonyMSF(
-    codec: UInt32,
-    channels: UInt32 = 2,
-    sampleRate: Int32,
-    payload: Data,
-    flags: UInt32 = 0x40,
-    loopStart: UInt32 = 0,
-    loopDuration: UInt32 = 0,
-    streamName: String? = nil
-) -> Data {
-    var data = Data(repeating: 0, count: 0x40)
-    data.replaceSubrange(0..<4, with: Data("MSF0".utf8))
-    setMSFUInt32(codec, in: &data, at: 0x04)
-    setMSFUInt32(channels, in: &data, at: 0x08)
-    setMSFUInt32(UInt32(payload.count), in: &data, at: 0x0C)
-    setMSFUInt32(UInt32(bitPattern: sampleRate), in: &data, at: 0x10)
-    setMSFUInt32(flags, in: &data, at: 0x14)
-    if flags != UInt32.max && flags & 0x03 != 0 {
-        setMSFUInt32(loopStart, in: &data, at: 0x18)
-        setMSFUInt32(loopDuration, in: &data, at: 0x1C)
-    }
-    if let streamName {
-        let name = Data(streamName.utf8)
-        data.replaceSubrange(0x18..<(0x18 + min(name.count, 0x27)), with: name.prefix(0x27))
-        setMSFUInt32(0, in: &data, at: 0x28)
-    }
-    data.append(payload)
-    return data
-}
-
-private func makeMPEGFrame(header: UInt32, size: Int) -> Data {
-    var frame = Data(repeating: 0, count: size)
-    setMSFUInt32(header, in: &frame, at: 0)
-    return frame
-}
-
-private func setMSFUInt32(_ value: UInt32, in data: inout Data, at offset: Int) {
-    data.replaceSubrange(
-        offset..<(offset + 4),
-        with: [
-            UInt8((value >> 24) & 0xFF),
-            UInt8((value >> 16) & 0xFF),
-            UInt8((value >> 8) & 0xFF),
-            UInt8(value & 0xFF)
-        ]
-    )
 }

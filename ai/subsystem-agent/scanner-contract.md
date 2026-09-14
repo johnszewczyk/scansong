@@ -116,10 +116,11 @@
   RIFF/CDXA signatures. It preserves vgmstream's XA validation, interleaved
   file/channel subsong order, labels, and sample timing without ADPCM decoding.
   Other `.xa` aliases remain on vgmstream.
-- ScanSong owns a direct Sony MSF container reader for recognized MSF headers.
-  It derives PCM, PSX ADPCM, ATRAC3, and MPEG sample/loop timing without audio
-  decoding and preserves the CLI's loop/fade projection and invalid-loop
-  cleanup. `MSF ` and other non-Sony `.msf` aliases remain on vgmstream.
+- MetaManCore owns the complete direct Sony MSF container reader for recognized
+  MSF headers. It retains the source header and derives PCM, PSX ADPCM, ATRAC3,
+  and MPEG sample/loop timing without audio decoding; the adapter preserves the
+  CLI's loop/fade projection and invalid-loop cleanup. `MSF ` and other
+  non-Sony `.msf` aliases remain on vgmstream.
 - ScanSong owns direct Konami/SNK SVAG readers for the `Svag` and `VAGm`
   headers. Both derive PS-ADPCM sample and loop timing without decoding audio;
   other `.svag` signatures remain on vgmstream.

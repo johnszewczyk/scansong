@@ -13,9 +13,9 @@ publication. The product is the sole catalog writer consumed by CocoaSpice and S
   AY, NSF/GBS/NSFE/SAP, and HES/M3U metadata that does not require a playback
   decoder.
 - `MetaManCore` — shared decoder-independent metadata reading for APE, ADX, AUS,
-  RIFF ATRAC3/ATRAC3+, SID PSID/RSID, SPC ID666/xID6, S98, VGM/VGZ, and
-  PSF/PSF2/SSF/USF/2SF tag footers. ScanSong maps neutral documents to schema
-  23.
+  RIFF ATRAC3/ATRAC3+, Sony MSF, SID PSID/RSID, SPC ID666/xID6, S98, VGM/VGZ,
+  and PSF/PSF2/SSF/USF/2SF tag footers. ScanSong maps neutral documents to
+  schema 23.
 - `scansong` — versioned JSONL command-line boundary.
 - `ScanSong` — native catalog-management interface.
 - `build-app.sh` and `launch.sh` — fresh packaging and launch boundary.
@@ -43,9 +43,9 @@ RIFF ATRAC3/ATRAC3+ metadata is read by MetaManCore, including ordered
 `LIST/INFO` tags, native `fact`/loop timing, and retained non-audio RIFF chunks.
 Nonmatching `.at3` aliases retain the vgmstream route; playback stays in
 VGMBoy.
-Recognized Sony MSF headers are likewise read in-process, including codec-based
-sample/loop timing and stream names; `MSF ` and other non-Sony aliases remain on
-the vgmstream route.
+Recognized Sony MSF headers are read by MetaManCore, including codec-based
+sample/loop timing, stream names, and retained source facts; `MSF ` and other
+non-Sony aliases remain on the vgmstream route. VGMBoy keeps the playback path.
 Known Konami and SNK SVAG headers are also read in-process, with unrelated
 `.svag` signatures retaining the vgmstream route.
 
