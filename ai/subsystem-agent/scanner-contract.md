@@ -79,17 +79,18 @@
   they never write the catalog directly.
 - Dependency-free byte facts are parsed by VGMBoy's `VGMBoyFormatDataCore`:
   AY relative-pointer metadata, SPC ID666/xID6, NSF/GBS/NSFE/SAP headers, HES
-  headers and companion M3U playlists, PSF tags, and SID headers. VGM/VGZ
-  header, GD3, gzip, and timing data are parsed by `MetaManCore`.
+  headers and companion M3U playlists, and SID headers. S98, VGM/VGZ, and
+  PSF/PSF2/SSF/USF/2SF tag data are parsed by `MetaManCore`.
   NSF/GBS/NSFE/HES enumeration and native metadata are complete at the
   header, chunk, or playlist boundary. SPC tagless defaults are also resolved
   in the direct reader, so the production ScanSong targets do not link libgme;
   libgme remains a playback concern for those formats and the scanner's other
   decoder-backed families.
   ScanSong owns source I/O, scanner metadata conversion, and catalog
-  publication; `MetaManCore` owns VGM/VGZ parsing and bounded VGZ decompression.
+  publication; `MetaManCore` owns S98, VGM/VGZ, and PSF-family metadata parsing,
+  including bounded VGZ decompression.
   These routes do not link `VGMBoyKit` or start a playback decoder.
-- S98 and VGM/VGZ metadata are parsed by the sibling `MetaManCore` package. It
+- S98, VGM/VGZ, and PSF-family metadata are parsed by the sibling `MetaManCore` package. It
   preserves ordered/duplicate/user-defined tags and raw tag bytes, with a
   ScanSong-only adapter to schema 23. Direct S98 timing uses the actual loop
   offset; libvgm remains only a test oracle for that route.
@@ -222,8 +223,8 @@
   subsongs and reads authored TIME/loop-start facts; HES publishes the
   playlist's authored tracks, or 256 compatibility slots without a playlist;
   KSS keeps its 256-slot fallback); the dependency-free `VGMBoyFormatDataCore`
-  readers for SPC ID666/xID6, NSF/GBS/NSFE/SAP headers, direct PSF-family routes,
-  and Commodore 64 SID PSID/RSID headers; MetaManCore handles VGM/VGZ and S98; the
+  readers for SPC ID666/xID6, NSF/GBS/NSFE/SAP headers, and Commodore 64 SID
+  PSID/RSID headers; MetaManCore handles VGM/VGZ, S98, and PSF-family tags; the
   Core Audio standard-audio inspector for FLAC/Vorbis comments and exact
   decoded duration (with AVFoundation metadata fallback for other ordinary
   audio),

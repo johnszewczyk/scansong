@@ -11,8 +11,9 @@ publication. The product is the sole catalog writer consumed by CocoaSpice and S
 - `ScanSongKit` — host-independent scanning and catalog engine.
 - `VGMBoyFormatDataCore` — dependency-free byte readers supplied by VGMBoy for
   metadata that does not require a playback decoder.
-- `MetaManCore` — shared decoder-independent format metadata reading for S98
-  and VGM/VGZ. ScanSong maps its neutral documents to schema 23.
+- `MetaManCore` — shared decoder-independent format metadata reading for S98,
+  VGM/VGZ, and PSF/PSF2/SSF/USF/2SF tag footers. ScanSong maps neutral
+  documents to schema 23.
 - `scansong` — versioned JSONL command-line boundary.
 - `ScanSong` — native catalog-management interface.
 - `build-app.sh` and `launch.sh` — fresh packaging and launch boundary.
@@ -101,12 +102,13 @@ collapsed into one ignored-format bucket:
   binary/text ID666 layouts contribute native timing. Valid SPC files with no
   recognized tags receive libgme-compatible info-only defaults; ScanSong's
   production targets no longer link or invoke libgme for SPC inspection.
-- PSF-style tags for direct PSF-family routes are harvested without starting a
-  playback core. GSF/miniGSF use a ScanSong-owned PSF v0x22/container reader
-  that validates compressed payloads and the dependency chain while preserving
-  authored tags and timing; mGBA remains playback-only. QSF/miniQSF use a
-  ScanSong-owned PSF v0x41/container and QSound block reader that validates
-  sibling QSFLib dependencies and extracts tags/timing without playback code.
+- MetaManCore reads PSF-style `[TAG]` footers and authored length/fade hints
+  for PSF/PSF2, SSF, USF, and 2SF without starting their playback plugins.
+  GSF/miniGSF use a ScanSong-owned PSF v0x22/container reader that validates
+  compressed payloads and the dependency chain while preserving authored tags
+  and timing; mGBA remains playback-only. QSF/miniQSF use a ScanSong-owned PSF
+  v0x41/container and QSound block reader that validates sibling QSFLib
+  dependencies and extracts tags/timing without playback code.
   NSF/GBS use a
   dependency-free header route for enumeration and native text metadata; their
   formats do not contain authored per-track names or timing, so the reader

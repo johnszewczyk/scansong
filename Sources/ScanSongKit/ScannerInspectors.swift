@@ -77,7 +77,17 @@ public struct BuiltInFormatInspector: ScanFormatHandler {
             let tracks = try XAMetadataReader.read(fileURL: fileURL)
             return ScanInspection(route: route, tracks: tracks)
         case "highly-theoretical", "lazyusf", "twosf", "play-psf1", "play-psf2":
-            let metadata = try PSFTagReader.read(fileURL: fileURL)
+            let metadata: ScannerMetadata?
+            do {
+                metadata = ScannerMetadata(
+                    metadataDocument: try MetaManCore.read(fileURL: fileURL),
+                    includeDateAndEncodedByInComment: false
+                )
+            } catch is MetadataReadError {
+                // The previous footer reader admitted the structurally-known
+                // source with empty metadata when its PSF signature was absent.
+                metadata = nil
+            }
             return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)])
         case "vgm-direct", "s98-direct":
             let document: MetadataDocument
@@ -348,30 +358,6 @@ private enum KSSInspector {
             ScanTrackMetadata(trackIndex: index, trackCount: trackCount, metadata: metadata)
         }
         return ScanInspection(route: route, tracks: tracks)
-    }
-}
-
-enum PSFTagReader {
-    struct Result {
-        let metadata: ScannerMetadata
-        let tags: [String: String]
-    }
-
-    static func read(fileURL: URL) throws -> ScannerMetadata? {
-        try readResult(fileURL: fileURL)?.metadata
-    }
-
-    static func readResult(fileURL: URL) throws -> Result? {
-        let data = try Data(contentsOf: fileURL, options: .mappedIfSafe)
-        guard let result = PSFFormatDataReader.readResult(
-            data: data,
-            pathExtension: fileURL.pathExtension,
-            displayName: fileURL.lastPathComponent
-        ) else { return nil }
-        return Result(
-            metadata: ScannerMetadata(formatMetadata: result.metadata),
-            tags: result.tags
-        )
     }
 }
 

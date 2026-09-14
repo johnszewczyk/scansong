@@ -1734,20 +1734,24 @@ func gameCubeFixturesInspectThroughVGMStream() async throws {
     #expect(metadata.playLengthMs == 30_000)
 }
 
-@Test func psfReaderHarvestsTagsAndTimingWithoutAPlaybackDecoder() throws {
+@Test func psfReaderHarvestsTagsAndTimingWithoutAPlaybackDecoder() async throws {
     var data = Data([0x50, 0x53, 0x46, 0x41])
     data.append(Data(repeating: 0, count: 12))
-    data.append(Data("[TAG]\ntitle=Cyberbot\ngame=Cyberbots\nartist=Capcom\nlength=1:23.500\nfade=4.250\n".utf8))
+    data.append(Data("[TAG]\ntitle=Cyberbot\ngame=Cyberbots\nartist=Capcom\ncomment=Cabinet mix\ndate=1999-02-01\npsfby=Build tool\nlength=1:23.500\nfade=4.250\n".utf8))
 
     let fileURL = try writeSPCTestFile(data, name: "cyberbot.psf")
     defer { try? FileManager.default.removeItem(at: fileURL) }
-    let result = try #require(try PSFTagReader.readResult(fileURL: fileURL))
+    let route = try #require(BuiltInScannerPlugins.registry.route(pathExtension: "psf"))
+    let handler = try #require(BuiltInFormatInspectors.registry.handler(for: route))
+    let inspection = try await handler.inspect(fileURL: fileURL, route: route)
+    let result = try #require(inspection.tracks.first?.metadata)
 
-    #expect(result.tags["title"] == "Cyberbot")
-    #expect(result.metadata.game == "Cyberbots")
-    #expect(result.metadata.author == "Capcom")
-    #expect(result.metadata.playLengthMs == 83_500)
-    #expect(result.metadata.fadeLengthMs == 4_250)
+    #expect(result.game == "Cyberbots")
+    #expect(result.song == "Cyberbot")
+    #expect(result.author == "Capcom")
+    #expect(result.comment == "Cabinet mix")
+    #expect(result.playLengthMs == 83_500)
+    #expect(result.fadeLengthMs == 4_250)
 }
 
 @Test func vgmAndVGZReadersHarvestNativeGD3AndTiming() async throws {

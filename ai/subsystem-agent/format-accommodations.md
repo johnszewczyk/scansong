@@ -19,19 +19,17 @@ does not turn arbitrary decoder failures into one-track records.
 ## Dependency-free format data
 
 The fixed-byte metadata readers for AY relative-pointer tables, SPC ID666/xID6,
-NSF/GBS/NSFE/SAP headers, HES headers and companion M3U playlists, PSF tags,
-and SID PSID/RSID headers live in the Foundation-only `VGMBoyFormatDataCore`
-product. VGM/VGZ is now read through MetaManCore, including bounded gzip
-decompression. ScanSong supplies source files and maps neutral metadata into
-its catalog schema. Neither shared product requires a playback decoder for
-these routes. Decoder-backed enumeration, timing, dependency validation, and
-rendering remain on their existing routes.
+NSF/GBS/NSFE/SAP headers, HES headers and companion M3U playlists, and SID
+PSID/RSID headers live in the Foundation-only `VGMBoyFormatDataCore` product.
+S98, VGM/VGZ, and PSF/PSF2/SSF/USF/2SF tags are read through MetaManCore.
+ScanSong supplies source files and maps neutral metadata into its catalog
+schema. These metadata routes do not require a playback decoder. Decoder-backed
+enumeration, timing, dependency validation, and rendering remain on their
+existing routes.
 
-S98 is the first full reader extracted to the independent `MetaManCore`
-package. It owns the format parser and neutral metadata document; ScanSong owns
-only source routing and the schema-23 adapter. The package preserves all
-ordered v3 tags and raw tag bytes, including user-defined `DATE`, and does not
-link a playback decoder.
+MetaManCore owns the S98, VGM/VGZ, and supported PSF-family metadata parsers and
+neutral metadata document; ScanSong owns source routing and the schema-23
+adapter. The package does not link a playback decoder.
 
 ## Format coverage and eventual playback target
 
@@ -55,10 +53,10 @@ independent media sources are not playback targets.
 | `standard-audio` | `.aac`, `.aif`, `.aiff`, `.caf`, `.flac`, `.m4a`, `.mp3`, `.wav`, `.wave` | Core Audio supplies duration/common tags, with FLAC Vorbis comments. `.ogg` is routed through this scanner handler too. `.aac`, `.caf`, and `.wave` do not currently have ScanSong routes. |
 | `ffmpeg-audio` | `.ape`, `.mp2`, `.tak` | `.ape` uses ScanSong's direct header/tag reader. `.mp2` and `.tak` do not currently have ScanSong routes. |
 | `highly-complete` | `.gsf`, `.minigsf` | ScanSong-owned PSF v0x22/container reader validates payloads and dependency chains without mGBA. |
-| `twosf` | `.2sf`, `.mini2sf` | Direct PSF footer-tag reader; it does not start the playback core. |
+| `twosf` | `.2sf`, `.mini2sf` | `MetaManCore` PSF-style `[TAG]` reader; it does not start the playback core. |
 | `vgmstream` | `.aa3`, `.adp`, `.adx`, `.adpcm`, `.ads`, `.agsc`, `.ahx`, `.aifc`, `.at3`, `.aus`, `.bk2`, `.bik`, `.bika`, `.bnk`, `.dsp`, `.dvi`, `.fsb`, `.genh`, `.h4m`, `.hbd`, `.hd`, `.iecs`, `.int`, `.ldat`, `.logg`, `.mib`, `.msf`, `.mtaf`, `.ogg`, `.ps3`, `.rsf`, `.rws`, `.s14`, `.ss2`, `.stream`, `.strm`, `.svag`, `.swav`, `.thp`, `.txtp`, `.vag`, `.xa`, `.xmd`, `.xvag` | `.adx`, `.at3`, `.aus`, `.msf`, `.svag`, and `.xa` use content-aware direct readers for recognized signatures; nonmatching aliases retain vgmstream. `.txtp` and HD-bank inputs use vgmstream with dependency preparation. Other routed streams use `vgmstream-cli -I`. `.ogg` currently uses the Core Audio scanner route. |
-| `lazyusf` | `.usf`, `.miniusf` | Direct PSF footer-tag reader; `.usflib` remains dependency data, not a track. |
-| `playpsf` | `.psf`, `.minipsf`, `.psf2`, `.minipsf2` | Direct PSF footer-tag reader; libraries remain dependency data. |
+| `lazyusf` | `.usf`, `.miniusf` | `MetaManCore` PSF-style `[TAG]` reader; `.usflib` remains dependency data, not a track. |
+| `playpsf` | `.psf`, `.minipsf`, `.psf2`, `.minipsf2` | `MetaManCore` PSF-style `[TAG]` reader; libraries remain dependency data. |
 | `qsf` | `.qsf`, `.miniqsf` | ScanSong-owned PSF v0x41/QSound container reader validates payload blocks, tags, and dependencies without the QSound core. |
 | `sidplayfp` | `.sid` | Direct PSID/RSID header reader; no duration is invented when the source has none. |
 | `openmpt` | `.669`, `.dmf`, `.far`, `.it`, `.mod`, `.mptm`, `.mtm`, `.okt`, `.ptm`, `.s3m`, `.stm`, `.ult`, `.xm` | ScanSong admits one known-structure row, but metadata remains optional/deferred; no playback decoder inspection runs. |
@@ -97,14 +95,14 @@ when the current playback registry does not yet admit it.
 | `mdx` | `.mdx` | One logical sequence row | VGMBoy-built `vgmboy-mdx-inspect` | A declared PDX bank is prepared but never published as a track. |
 | `amiga-uade` | UADE replayer prefixes (`mod.*`, `p4x.*`, `med.*`, TFMX, and custom players) | One row per UADE subsong | VGMBoy-built `vgmboy-amiga-inspect` | `.lha` and loose sets are materialized as complete sets; companions remain dependency data. |
 | `gsf-direct` | `.gsf`, `.minigsf` | One validated row | ScanSong PSF v0x22/GSF reader | CRC, zlib payload, GBA segment, and complete miniGSF dependency chain are validated without mGBA. |
-| `highly-theoretical` | `.ssf`, `.minissf` | One structurally-known row | `VGMBoyFormatDataCore` PSF footer tags | Metadata is available; current VGMBoy/CocoaSpice playback admission remains a gap. |
-| `lazyusf` | `.usf`, `.miniusf` | One structurally-known row | `VGMBoyFormatDataCore` PSF footer tags | `.usflib` is playback dependency data, never a row. |
-| `twosf` | `.2sf`, `.mini2sf` | One structurally-known row | `VGMBoyFormatDataCore` PSF footer tags | `.2sflib` is dependency data, never a row. |
+| `highly-theoretical` | `.ssf`, `.minissf` | One structurally-known row | `MetaManCore` PSF-style `[TAG]` footer reader | Metadata is available; current VGMBoy/CocoaSpice playback admission remains a gap. |
+| `lazyusf` | `.usf`, `.miniusf` | One structurally-known row | `MetaManCore` PSF-style `[TAG]` footer reader | `.usflib` is playback dependency data, never a row. |
+| `twosf` | `.2sf`, `.mini2sf` | One structurally-known row | `MetaManCore` PSF-style `[TAG]` footer reader | `.2sflib` is dependency data, never a row. |
 | `vgmstream` | Remaining raw-stream extensions listed below plus nonmatching `.adx`, `.at3`, `.aus`, `.msf`, `.svag`, and `.xa` aliases | One row per reported subsong | VGMBoy-built `vgmstream-cli` | Native `-I` inspection; subsong count is bounded. Recognized CRI/Monster ADX, RIFF ATRAC3, Atomic Planet AUS, Sony MSF, Konami/SNK SVAG, and Sony XA signatures use ScanSong readers. |
 | `vgmstream-txtp` | `.txtp` | One row per resolved subsong | `vgmstream-cli` after dependency preparation | Authored TXTP structure is authoritative. |
 | `vgmstream-hd-bank` | `.hd`, `.hbd`, `.iecs` | One row per resolved subsong | `vgmstream-cli` after dependency preparation | Bank/control sidecars are support data; IECS remains a known adapter boundary. |
-| `play-psf1` | `.psf`, `.minipsf` | One structurally-known row | `VGMBoyFormatDataCore` PSF footer tags | `.psflib` is playback dependency data, never a row. |
-| `play-psf2` | `.psf2`, `.minipsf2` | One structurally-known row | `VGMBoyFormatDataCore` PSF footer tags | `.psflib` is playback dependency data, never a row. |
+| `play-psf1` | `.psf`, `.minipsf` | One structurally-known row | `MetaManCore` PSF-style `[TAG]` footer reader | `.psflib` is playback dependency data, never a row. |
+| `play-psf2` | `.psf2`, `.minipsf2` | One structurally-known row | `MetaManCore` PSF-style `[TAG]` footer reader | `.psflib` is playback dependency data, never a row. |
 | `qsf-direct` | `.qsf` | One validated row | ScanSong QSF PSF/data-block reader | CRC, bounded zlib output, QSound block ranges, and any referenced `.qsflib` files are validated without a QSound core. |
 | `qsf-mini-direct` | `.miniqsf` | One validated row | ScanSong QSF PSF/data-block reader | Referenced `_lib` through `_lib9` libraries must be available beside the source and pass container/block validation. |
 | `sid` | `.sid` | One structurally-known row | `VGMBoyFormatDataCore` PSID/RSID header reader | No finite duration is invented when the header has none. |
@@ -346,12 +344,24 @@ are converted to milliseconds using the playback bridge's parsing semantics.
 The scanner publishes one QSound track per source. VGMBoy retains its QSF core
 for playback.
 
-### PSF, PSF2, SSF, and USF
+### PSF, PSF2, SSF, USF, and 2SF
 
-`play-psf1`, `play-psf2`, `highly-theoretical`, and `lazyusf` currently use the
-safe PSF-style metadata reader for one structurally-known row. This reader
-extracts bounded `[TAG]` fields and maps `length`/`fade` without emulation.
-The row may therefore have empty metadata when no footer exists.
+`play-psf1`, `play-psf2`, `highly-theoretical`, `lazyusf`, and `twosf` currently use the
+MetaMan PSF-style metadata reader for one structurally-known row. The reader
+preserves ordered `[TAG]` fields, duplicates, unknown keys, and original footer
+bytes; common identity fields and authored `length`/`fade` are projected
+without emulation. Tag parsing is bounded to 1 MiB, while the raw footer is
+retained. When no footer exists, the title falls back to the filename and the
+extension supplies the system name. The parser does not validate the compressed
+program payload or resolve playback libraries; those remain playback concerns.
+Against the read-only live root-1 catalog, all 14,994 rows across 308 source
+containers matched the saved catalog's metadata, timing, and track structure
+exactly. Optimized Release inspection measured 0.071 ms median and 0.090 ms p95
+per member; this is a local-corpus result, not a cross-machine guarantee.
+
+GSF/miniGSF and QSF/miniQSF remain on their specialized ScanSong readers because
+their complete scanner contracts include payload, block, and dependency-chain
+validation beyond generic `[TAG]` extraction.
 
 Their sidecars are never independent scanner sources. The recognized support
 names are `.psflib`, `.2sflib`, `.ssflib`, and `.usflib`; they are omitted from
