@@ -72,7 +72,17 @@ public struct BuiltInFormatInspector: ScanFormatHandler {
             )
             return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)])
         case "adx-direct":
-            let metadata = try ADXMetadataReader.read(fileURL: fileURL)
+            let document: MetadataDocument
+            do {
+                document = try MetaManCore.read(fileURL: fileURL)
+            } catch let error as MetadataReadError {
+                throw ScannerInspectionError.malformedFile(error.localizedDescription)
+            } catch {
+                throw ScannerInspectionError.library(
+                    "Could not read ADX source \(fileURL.lastPathComponent): \(error.localizedDescription)"
+                )
+            }
+            let metadata = ScannerMetadata(metadataDocument: document, includeDateAndEncodedByInComment: false)
             return ScanInspection(route: route, tracks: [ScanTrackMetadata(trackIndex: 0, trackCount: 1, metadata: metadata)])
         case "at3-direct":
             let metadata = try AT3MetadataReader.read(fileURL: fileURL)

@@ -13,7 +13,7 @@ executables.
   are the source of truth for upstream revision review; ScanSong does not keep a second version list.
 - ScanSong depends on VGMBoy's lightweight `VGMBoyFormatCore` and `VGMBoySNDH` products
   for typed format admission; it does not link VGMBoyKit or native decoders.
-- ScanSong consumes the local sibling `MetaManCore` Swift package for APE, SID,
+- ScanSong consumes the local sibling `MetaManCore` Swift package for APE, ADX, SID,
   SPC, S98, VGM/VGZ, and PSF-family metadata. MetaManCore owns bounded VGZ gzip
   expansion and has no
   VGMBoy, ScanSong, or playback-decoder dependency; test-only libvgm comparisons
@@ -40,7 +40,7 @@ executables.
   bridges, not VGMBoyKit. Scanner-plugin preparation builds the scanner handoff
   directly; it does not invoke VGMBoy's broad playback dependency builder or
   stage unrelated mGBA/QSF playback cores.
-- CRI ADX uses ScanSong's in-process header reader and never starts
+- CRI/Monster ADX uses MetaManCore's in-process header reader and never starts
   `vgmstream-cli`. `.adx` content without a CRI or Monster Games signature
   remains on the vgmstream route; the helper also remains necessary for the
   other registered vgmstream formats.
@@ -76,7 +76,7 @@ executables.
   ScanSong owns only prefix admission, archive materialization, and catalog projection.
 - APE metadata is read by MetaManCore's direct header/tag reader; FFmpeg
   remains in VGMBoy for playback and is not an APE scanner requirement.
-- CRI ADX metadata is read by ScanSong's direct header/timing reader; vgmstream
+- CRI/Monster ADX metadata is read by MetaManCore's direct header/timing reader; vgmstream
   remains a VGMBoy playback route and a scanner helper for other formats.
 - Atomic Planet AUS metadata is read by ScanSong's direct header/timing reader;
   vgmstream remains the fallback for other `.aus` payloads and scanner support

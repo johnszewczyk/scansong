@@ -12,7 +12,7 @@ publication. The product is the sole catalog writer consumed by CocoaSpice and S
 - `VGMBoyFormatDataCore` — dependency-free byte readers supplied by VGMBoy for
   AY, NSF/GBS/NSFE/SAP, and HES/M3U metadata that does not require a playback
   decoder.
-- `MetaManCore` — shared decoder-independent metadata reading for APE,
+- `MetaManCore` — shared decoder-independent metadata reading for APE, ADX,
   SID PSID/RSID, SPC ID666/xID6, S98, VGM/VGZ, and PSF/PSF2/SSF/USF/2SF tag
   footers. ScanSong maps neutral documents to schema 23.
 - `scansong` — versioned JSONL command-line boundary.
@@ -29,9 +29,9 @@ start mGBA/Highly Complete or the QSound playback core. Those cores remain in
 VGMBoy for playback. Scanner inspectors use VGMBoy's narrow inspection target;
 scanner-plugin preparation does not invoke the broad playback dependency
 builder or prepare mGBA/QSF as scanner build-time collateral.
-CRI ADX headers and native loop timing are also read in-process by ScanSong;
-the vgmstream helper remains for other streams and non-CRI/Monster payloads
-that reuse `.adx` (including Ogg and RIFF).
+CRI/Monster ADX headers and native loop timing are read through MetaManCore;
+the vgmstream helper remains for other streams and non-ADX payloads that reuse
+`.adx` (including Ogg and RIFF).
 Sony CD-XA sectors and interleaved subsongs are also read in-process; unrelated
 formats using `.xa` remain on the vgmstream route.
 Atomic Planet AUS headers now provide codec-independent timing and loop data

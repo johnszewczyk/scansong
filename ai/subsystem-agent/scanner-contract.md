@@ -79,23 +79,24 @@
   they never write the catalog directly.
 - Dependency-free byte facts are parsed by VGMBoy's `VGMBoyFormatDataCore`:
   AY relative-pointer metadata, NSF/GBS/NSFE/SAP headers, and HES headers and
-  companion M3U playlists. SID PSID/RSID, SPC ID666/xID6, S98, VGM/VGZ, and
-  PSF/PSF2/SSF/USF/2SF tag data are parsed by `MetaManCore`.
+  companion M3U playlists. `MetaManCore` parses APE, CRI/Monster ADX, SID
+  PSID/RSID, SPC ID666/xID6, S98, VGM/VGZ, and PSF/PSF2/SSF/USF/2SF tag data.
   NSF/GBS/NSFE/HES enumeration and native metadata are complete at the
   header, chunk, or playlist boundary. SPC tagless defaults are also resolved
   in MetaManCore, so the production ScanSong targets do not link libgme;
   libgme remains a playback concern for those formats and the scanner's other
   decoder-backed families.
   ScanSong owns source I/O, scanner metadata conversion, and catalog
-  publication; `MetaManCore` owns APE, SID, SPC, S98, VGM/VGZ, and PSF-family metadata
-  parsing, including bounded VGZ decompression and named SPC raw tag blocks.
+  publication; `MetaManCore` owns APE, ADX, SID, SPC, S98, VGM/VGZ, and
+  PSF-family metadata parsing, including bounded VGZ decompression and named SPC
+  raw tag blocks.
   These routes do not link `VGMBoyKit` or start a playback decoder.
-- APE, SID, SPC, S98, VGM/VGZ, and PSF-family metadata are parsed by the sibling `MetaManCore` package. It
-  preserves ordered tags and source bytes (including separately named ID666 and
-  xID6 SPC blocks), with a
-  ScanSong-only adapter to schema 23. Direct S98 timing uses the actual loop
-  offset; libvgm remains only a test oracle for that route.
-- ScanSong owns a direct CRI ADX header reader for type 03/04/05, encrypted
+- APE, ADX, SID, SPC, S98, VGM/VGZ, and PSF-family metadata are parsed by the
+  sibling `MetaManCore` package. It preserves ordered tags and source bytes
+  (including separately named ID666 and xID6 SPC blocks), with a ScanSong-only
+  adapter to schema 23. Direct S98 timing uses the actual loop offset; libvgm
+  remains only a test oracle for that route.
+- MetaManCore owns a direct CRI/Monster ADX reader for type 03/04/05, encrypted
   type-04 headers, and Monster Games ADX. It derives loop length from native
   sample bounds and preserves vgmstream's two-loop plus ten-second fade default
   when computing play length. `.adx` files without recognized CRI/Monster
@@ -226,7 +227,7 @@
   playlist's authored tracks, or 256 compatibility slots without a playlist;
   KSS keeps its 256-slot fallback); the dependency-free `VGMBoyFormatDataCore`
   readers for AY, NSF/GBS/NSFE/SAP headers, and HES; MetaManCore handles APE,
-  SID PSID/RSID, SPC ID666/xID6, VGM/VGZ, S98, and
+  CRI/Monster ADX, SID PSID/RSID, SPC ID666/xID6, VGM/VGZ, S98, and
   PSF-family tags; the
   Core Audio standard-audio inspector for FLAC/Vorbis comments and exact
   decoded duration (with AVFoundation metadata fallback for other ordinary

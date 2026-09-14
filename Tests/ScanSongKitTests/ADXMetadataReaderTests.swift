@@ -3,54 +3,6 @@ import SQLite3
 import Testing
 @testable import ScanSongKit
 
-@Test("CRI ADX versions preserve decoder tags, loop points, and default play timing")
-func adxMetadataReaderPreservesCRIHeaderContract() throws {
-    for version in [UInt16(0x0300), 0x0400, 0x0408, 0x0409] {
-        let metadata = try ADXMetadataReader.read(
-            data: makeCRIADX(version: version),
-            displayName: "Battle Theme.adx"
-        )
-        #expect(metadata == ScannerMetadata(
-            game: "",
-            song: "Battle Theme",
-            system: "",
-            author: "",
-            comment: version == 0x0300 ? "CRI ADX header (type 03)" : "CRI ADX header (type 04)",
-            introLengthMs: 0,
-            loopLengthMs: 2_000,
-            playLengthMs: 15_000,
-            fadeLengthMs: 0
-        ))
-    }
-
-    let type05 = try ADXMetadataReader.read(
-        data: makeCRIADX(version: 0x0500, loopFlag: 0, sampleRate: 32_000, sampleCount: 64_000),
-        displayName: "No Loop.adx"
-    )
-    #expect(type05.comment == "CRI ADX header (type 05)")
-    #expect(type05.loopLengthMs == 0)
-    #expect(type05.playLengthMs == 2_000)
-}
-
-@Test("Monster Games ADX headers are read without DSP decoding")
-func adxMetadataReaderSupportsMonsterGamesHeader() throws {
-    let metadata = try ADXMetadataReader.read(
-        data: makeMonsterADX(),
-        displayName: "Boss.adx"
-    )
-    #expect(metadata == ScannerMetadata(
-        game: "",
-        song: "Boss",
-        system: "",
-        author: "",
-        comment: "Monster Games .ADX header",
-        introLengthMs: 0,
-        loopLengthMs: 2_000,
-        playLengthMs: 15_000,
-        fadeLengthMs: 0
-    ))
-}
-
 @Test("ADX routing separates CRI streams from Ogg files that reuse the extension")
 func adxRoutingSniffsOggAlias() throws {
     let registry = BuiltInScannerPlugins.registry
@@ -86,21 +38,37 @@ func adxRoutingSniffsOggAlias() throws {
     #expect(registry.route(forPath: invalidURL.path)?.pluginID == "adx-direct")
 }
 
-@Test("ADX reader rejects truncated and unsupported headers")
-func adxMetadataReaderRejectsMalformedHeaders() {
-    #expect(throws: ScannerInspectionError.self) {
-        try ADXMetadataReader.read(data: Data("ADX".utf8), displayName: "short.adx")
-    }
+@Test("MetaMan ADX documents preserve ScanSong's existing catalog projection")
+func adxMetadataAdapterPreservesCatalogProjection() async throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("scansong-adx-adapter-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
 
-    var unsupported = makeCRIADX(version: 0x0400)
-    putUInt16BE(&unsupported, at: 0x12, value: 0x0600)
-    #expect(throws: ScannerInspectionError.self) {
-        try ADXMetadataReader.read(data: unsupported, displayName: "future.adx")
-    }
+    let fileURL = directory.appendingPathComponent("Battle Theme.adx")
+    try makeCRIADX(version: 0x0400).write(to: fileURL)
+    let route = try #require(BuiltInScannerPlugins.registry.route(forPath: fileURL.path))
+    let handler = try #require(BuiltInFormatInspectors.registry.handler(for: route))
+    let inspection = try await handler.inspect(fileURL: fileURL, route: route)
+
+    #expect(inspection.tracks.count == 1)
+    #expect(inspection.tracks[0].trackIndex == 0)
+    #expect(inspection.tracks[0].trackCount == 1)
+    #expect(inspection.tracks[0].metadata == ScannerMetadata(
+        game: "",
+        song: "Battle Theme",
+        system: "",
+        author: "",
+        comment: "CRI ADX header (type 04)",
+        introLengthMs: 0,
+        loopLengthMs: 2_000,
+        playLengthMs: 15_000,
+        fadeLengthMs: 0
+    ))
 }
 
 @Test(
-    "CRI ADX direct metadata matches all saved CocoaSpice rows and vgmstream",
+    "MetaMan ADX metadata matches all saved CocoaSpice rows and vgmstream",
     .enabled(
         if: ProcessInfo.processInfo.environment["SCANSONG_ADX_LIVE_DB"] != nil,
         "Set SCANSONG_ADX_LIVE_DB to run read-only ADX corpus parity. Set SCANSONG_VGMSTREAM_CLI to also compare the decoder directly."

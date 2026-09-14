@@ -20,14 +20,14 @@ does not turn arbitrary decoder failures into one-track records.
 
 The fixed-byte metadata readers for AY relative-pointer tables,
 NSF/GBS/NSFE/SAP headers, and HES headers with companion M3U playlists live in
-`VGMBoyFormatDataCore`. APE, SID PSID/RSID, SPC ID666/xID6, S98, VGM/VGZ, and
-PSF/PSF2/SSF/USF/2SF metadata are read through MetaManCore.
+`VGMBoyFormatDataCore`. APE, CRI/Monster ADX, SID PSID/RSID, SPC ID666/xID6,
+S98, VGM/VGZ, and PSF/PSF2/SSF/USF/2SF metadata are read through MetaManCore.
 ScanSong supplies source files and maps neutral metadata into its catalog
 schema. These metadata routes do not require a playback decoder. Decoder-backed
 enumeration, timing, dependency validation, and rendering remain on their
 existing routes.
 
-MetaManCore owns APE, SID, SPC, S98, VGM/VGZ, and supported PSF-family
+MetaManCore owns APE, ADX, SID, SPC, S98, VGM/VGZ, and supported PSF-family
 metadata parsers plus the neutral metadata document; ScanSong owns source
 routing and the schema-23 adapter. The package does not link a playback decoder.
 
@@ -83,7 +83,7 @@ when the current playback registry does not yet admit it.
 | `openmpt` | `.669`, `.dmf`, `.far`, `.it`, `.mod`, `.mptm`, `.mtm`, `.okt`, `.ptm`, `.s3m`, `.stm`, `.ult`, `.xm` | One structurally-known row | Optional/deferred; metadata may be empty | No scanner-side module conversion or archive expansion. |
 | `standard-audio` | `.aif`, `.aiff`, `.flac`, `.m4a`, `.mp3`, `.ogg`, `.wav` | One track | Core Audio duration and common tags; FLAC Vorbis comments | Exact decoded duration is preferred. |
 | `ape-direct` | `.ape` | One validated single row | `MetaManCore` APE descriptor, seek-table, APEv2, and ID3v2 reader | Header-derived duration, ordered tags, and original tag blocks; no decoder startup. |
-| `adx-direct` | CRI ADX in `.adx` | One track | ScanSong CRI ADX header reader | Preserves native sample/loop bounds and vgmstream's default two-loop/10-second-fade play window; non-CRI/Monster signatures (including Ogg and RIFF aliases) use vgmstream. |
+| `adx-direct` | CRI/Monster ADX in `.adx` | One track | `MetaManCore` CRI/Monster header and loop-timing reader | Preserves native sample/loop bounds and vgmstream's default two-loop/10-second-fade play window; non-ADX signatures (including Ogg and RIFF aliases) use vgmstream. |
 | `aus-direct` | Atomic Planet AUS in `.aus` | One track | ScanSong Atomic Planet AUS header reader | Preserves native sample rate/count, loop markers, and vgmstream's default play window without starting PS-ADPCM or Xbox IMA decoding; other `.aus` payloads use vgmstream. |
 | `sony-msf-direct` | Sony MSF in `.msf` | One track | ScanSong Sony MSF header and frame reader | Reads supported codec timing, native stream name, and loop bounds without audio decoding; TamaSoft `MSF ` and other non-Sony aliases use vgmstream. |
 | `svag-direct` | Konami/SNK SVAG in `.svag` | One track | ScanSong Konami/SNK SVAG header reader | Derives PS-ADPCM sample and loop timing without decoding; unknown `.svag` signatures use vgmstream. |
@@ -98,7 +98,7 @@ when the current playback registry does not yet admit it.
 | `highly-theoretical` | `.ssf`, `.minissf` | One structurally-known row | `MetaManCore` PSF-style `[TAG]` footer reader | Metadata is available; current VGMBoy/CocoaSpice playback admission remains a gap. |
 | `lazyusf` | `.usf`, `.miniusf` | One structurally-known row | `MetaManCore` PSF-style `[TAG]` footer reader | `.usflib` is playback dependency data, never a row. |
 | `twosf` | `.2sf`, `.mini2sf` | One structurally-known row | `MetaManCore` PSF-style `[TAG]` footer reader | `.2sflib` is dependency data, never a row. |
-| `vgmstream` | Remaining raw-stream extensions listed below plus nonmatching `.adx`, `.at3`, `.aus`, `.msf`, `.svag`, and `.xa` aliases | One row per reported subsong | VGMBoy-built `vgmstream-cli` | Native `-I` inspection; subsong count is bounded. Recognized CRI/Monster ADX, RIFF ATRAC3, Atomic Planet AUS, Sony MSF, Konami/SNK SVAG, and Sony XA signatures use ScanSong readers. |
+| `vgmstream` | Remaining raw-stream extensions listed below plus nonmatching `.adx`, `.at3`, `.aus`, `.msf`, `.svag`, and `.xa` aliases | One row per reported subsong | VGMBoy-built `vgmstream-cli` | Native `-I` inspection; subsong count is bounded. Recognized CRI/Monster ADX uses MetaManCore; recognized RIFF ATRAC3, Atomic Planet AUS, Sony MSF, Konami/SNK SVAG, and Sony XA signatures use ScanSong readers. |
 | `vgmstream-txtp` | `.txtp` | One row per resolved subsong | `vgmstream-cli` after dependency preparation | Authored TXTP structure is authoritative. |
 | `vgmstream-hd-bank` | `.hd`, `.hbd`, `.iecs` | One row per resolved subsong | `vgmstream-cli` after dependency preparation | Bank/control sidecars are support data; IECS remains a known adapter boundary. |
 | `play-psf1` | `.psf`, `.minipsf` | One structurally-known row | `MetaManCore` PSF-style `[TAG]` footer reader | `.psflib` is playback dependency data, never a row. |
@@ -459,15 +459,20 @@ legacy inspector; those decoder probes took 1.0–2.3 seconds each due to its
 offset wrap. Archive extraction is serialized, with one archive payload at a
 time.
 
-### CRI ADX
+### CRI / Monster ADX
 
-CRI ADX files route to ScanSong's in-process metadata reader rather than
-`vgmstream-cli`. It recognizes type-03, type-04 (including encrypted version
+CRI ADX files route through MetaManCore's in-process metadata reader rather
+than `vgmstream-cli`. It recognizes type-03, type-04 (including encrypted version
 markers), and type-05 headers, plus the distinct Monster Games ADX layout. The
-reader preserves the decoder's source label, sample-derived loop length, and
-default play timing (two loop iterations followed by a ten-second fade). The
-live-catalog test compares all saved ADX fields against both this reader and
-`vgmstream-cli`. Only recognized CRI/Monster headers use this reader; other
+reader preserves the existing catalog projection and additionally retains
+exact header bytes, sample rate/count, channels, and loop bounds as technical
+facts. The live-catalog test compares all saved ADX fields against MetaMan and
+`vgmstream-cli`. The read-only root-1 result covers 489 rows in 13 source
+containers: all 489 exactly match both the saved catalog and vgmstream.
+Optimized Release mean inspection is 0.190 ms/row through MetaMan and
+81.375 ms/row through the CLI, including its per-file process startup; these
+are local per-file measurements, not whole-scan guarantees. Only recognized
+CRI/Monster headers use this reader; other
 payloads named `.adx` (including Ogg and RIFF aliases) remain on vgmstream, so
 extension alone does not classify content as CRI ADX.
 
